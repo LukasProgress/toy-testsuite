@@ -6,6 +6,7 @@ import Control.Monad (foldM)
 import Test.Hspec ( hspec, describe, Spec )
 
 import Spec.Tests
+import Spec.IOTest
 import Data.Maybe (fromJust, isJust)
 import Data.List (transpose)
 
@@ -30,9 +31,14 @@ runner descr exs spectest = do
     (bs, specs) -> return (bs, describe descr specs)
   where f (bs, specsequence) (b, spec) = return (b:bs, spec >> specsequence)
 
+
+
 fromTo :: Int -> Int -> [Int]
 fromTo x y | x > y = []
            | otherwise = x : fromTo (x + 1) y
+
+
+
 
 
 main :: IO ()
@@ -51,6 +57,11 @@ main = do
     (xs2, t2) <- runner "These Numbers are also not odd" [examples] (\[x] -> Spec.Tests.f2_minus5 x)
     -- Use both dependencies: 
     (productsNotOdd, doubleDependentSpec) <- runner "f (f1 x) (f2 x) not odd" [xs1, xs2] (\[x1, x2] -> Spec.Tests.productNotOdd x1 x2)
+
+
+    -----------------Monadische Werte-----------------
+    
+    (_, mv) <- runner "Reading in a file of numbers, are they bigger than these examples?" [examples] (\[x] -> Spec.IOTest.spec x)
 
     hspec $ do
         -- biggerThan5spec -- 5 failures
