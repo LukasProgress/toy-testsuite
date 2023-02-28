@@ -43,3 +43,14 @@ productNotOdd n m = let o = m * n
                     in if odd o
                         then return (Nothing, spec)
                         else return (Just o, spec)
+
+
+------------ Nicht lineare Tests: ----------------
+
+-- Testergebnis vom selben Test Abhängig
+reachesZero :: Monad m => Int -> m (Maybe Int, Spec)
+reachesZero n = case n of 
+                  0 -> return (Just n, it "n reaches zero" $ n `shouldBe` 0)
+                  m -> if m < 0 
+                        then return (Nothing, it "n is smaller than 0" $ n >= 0 `shouldBe` True)
+                        else reachesZero (n - 1)
