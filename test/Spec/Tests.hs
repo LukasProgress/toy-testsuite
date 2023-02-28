@@ -47,6 +47,12 @@ productNotOdd n m = let o = m * n
 
 ------------ Nicht lineare Tests: ----------------
 
+fNonlinearZero :: Int -> Int
+fNonlinearZero x
+  | x == 0 = 1
+  | x < 0  = x
+  | x > 0  = fNonlinearZero (x-1)
+
 -- Testergebnis vom selben Test Abhängig
 reachesZero :: Monad m => Int -> m (Maybe Int, Spec)
 reachesZero n = case n of 
