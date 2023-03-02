@@ -50,24 +50,49 @@ evalOrderWorker vals deps order = return (f vals deps order)
         f (v:vs) ([]:ds) ord = evalOrderWorker (delete v vals) (map (delete v) deps) (order ++ [v]) 
         f (v:vs) (d:ds) ord = f vs ds ord
 
-  
+  -}
+
+dependencyTesting :: Monad m => ([Maybe b], Spec, [(a, Maybe b)])  -- Collection of result list
+                             -> [Maybe a]                          -- Values to be tested
+                             -> a -> Maybe [a]                     -- DependencyFunction  
+                             -> (a -> m (Maybe b, Spec))           -- spectest
+                             -> m ([Maybe b], Spec, [(a, Maybe b)]) 
+dependencyTesting steps [] _ _ = return steps                        -- end of recursion
+dependencyTesting (bs, specsequence, resMap) (Nothing:as) depFunc spectest = dependencyTesting (Nothing:bs, specsequence, resMap) as depFunc spectest -- skip testing values that are `Nothing` 
+dependencyTesting (bs, specsequence, resMap) (Just x : as) depFunc spectest = 
+  case lookup x resMap of
+    --either the test already ran and was good, then we can skip it: 
+    Just _  -> dependencyTesting (bs, specsequence, resMap) as depFunc spectest
+    --or not, now we need to test all its dependencies before x:
+    Nothing ->
+      let dependencies = depFunc x 
+      in case dependencies of
+        Nothing -> do                                  -- if no deps, simply test and add result to bs, add spec to specsequence and add the mapping x->b to the resultmap
+           (b, spec) <- spectest x 
+           dependencyTesting (b:bs, spec >> specsequence, (x, b):resMap) as depFunc spectest
+        Just deps -> do
+          (bs', specsequence', resMap') <- dependencyTesting ([], specsequence, resMap) (map Just deps) depFunc spectest
+          if all isJust bs' 
+            then do 
+              (b, spec) <- spectest x 
+              dependencyTesting (b:bs, spec >> specsequence' >> specsequence, (x, b): resMap ++ resMap') as depFunc spectest
+            else dependencyTesting (Nothing:bs, specsequence, resMap) as depFunc spectest
+
+
+
 
 runnerNonLinear :: Monad m 
                   => Description
-                  -> [(Maybe a, a -> [a])]                     -- List of values and their dependencies
+                  -> [Maybe a]                     -- Values to be tested
+                  -> a -> Maybe [a]                -- Function for dependencies
                   -> (a -> m (Maybe b, Spec))
                   -> m ([Maybe b], Spec)
-runnerNonLinear descr exs spectest = do                      
-  evaluationOrder <- getEvalOrder exs 
-  tested <- forM evaluationOrder $ \a -> case a of 
-                                                Nothing -> return (Nothing, pure ())
-                                                Just x -> spectest x
-  sequenced <- foldM f ([], return ()) tested
-  case sequenced of
-    (bs, specs) -> return (bs, describe descr specs)
-  where f (bs, specsequence) (b, spec) = return (b:bs, spec >> specsequence)
+runnerNonLinear descr exs depFunc spectest = do                      
+  tested <- dependencyTesting ([], return (), []) exs depFunc spectest
+  case tested of
+    (bs, specs, _) -> return (bs, describe descr specs)
                     
--}
+
 
 
 fromTo :: Int -> Int -> [Int]
@@ -106,6 +131,8 @@ main = do
     (_, nonlin) <- runner "Does a number reach zero if you substract 1 repeatedly?" [examples] (\[x] -> Spec.Tests.reachesZero x)
 
     (_, nonlinfail) <- runner "Does a number reach zero, but not bigger than 4?" [examples] (\[x] -> Spec.Tests.reachesZeroFail x)
+
+    (_, runNonLin) <- runnerNonLinear "Testing nonlinear runner" examples (\x -> if x == 0 then Nothing else Just [x-1]) Spec.Tests.reachesZero
 
     hspec $ do
         -- biggerThan5spec -- 5 failures
