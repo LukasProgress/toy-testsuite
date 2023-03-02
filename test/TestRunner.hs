@@ -32,7 +32,7 @@ runner descr exs spectest = do
 
 
 ---------------------------- NOn linear runner ---------------------
-
+{-
 getEvalOrder :: Monad m => [(Maybe a, a -> [a])] -> m [Maybe a]
 getEvalOrder exs = 
   let listsOfDeps = map (\(x, f) -> case x of                     -- listsOfDeps hat dependencies für Element exs_i an index i
@@ -67,7 +67,7 @@ runnerNonLinear descr exs spectest = do
     (bs, specs) -> return (bs, describe descr specs)
   where f (bs, specsequence) (b, spec) = return (b:bs, spec >> specsequence)
                     
-
+-}
 
 
 fromTo :: Int -> Int -> [Int]
@@ -103,7 +103,9 @@ main = do
 
     ----------------Nicht lineare Tests---------------
 
-    (_, nl) <- runner "Does a number reach zero if you substract 1 repeatedly?" [examples] (\[x] -> Spec.Tests.reachesZero x)
+    (_, nonlin) <- runner "Does a number reach zero if you substract 1 repeatedly?" [examples] (\[x] -> Spec.Tests.reachesZero x)
+
+    (_, nonlinfail) <- runner "Does a number reach zero, but not bigger than 4?" [examples] (\[x] -> Spec.Tests.reachesZeroFail x)
 
     hspec $ do
         -- biggerThan5spec -- 5 failures
@@ -111,4 +113,5 @@ main = do
         dependentSpec      -- 0 failures, dependent on the first two
         doubleDependentSpec
         mv
-        nl
+        nonlin
+        nonlinfail

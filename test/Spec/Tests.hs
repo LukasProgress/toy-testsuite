@@ -49,14 +49,31 @@ productNotOdd n m = let o = m * n
 
 fNonlinearZero :: Int -> Int
 fNonlinearZero x
-  | x == 0 = 1
-  | x < 0  = x
-  | x > 0  = fNonlinearZero (x-1)
+  | x == 0    = 1
+  | x < 0     = x
+  | otherwise = fNonlinearZero (x-1)
+
+fNonlinearZeroFail :: Int -> Int
+fNonlinearZeroFail x
+  | x == 0    = 1
+  | x == 5    = 0
+  | x < 0     = x
+  | otherwise = fNonlinearZeroFail (x - 1)
+
+fDependingG :: Int -> Int
+fDependingG x = g (2 * x)
+
+g :: Int -> Int
+g = id
 
 -- Testergebnis vom selben Test Abhängig
 reachesZero :: Monad m => Int -> m (Maybe Int, Spec)
-reachesZero n = case n of 
-                  0 -> return (Just n, it "n reaches zero" $ n `shouldBe` 0)
-                  m -> if m < 0 
-                        then return (Nothing, it "n is smaller than 0" $ n >= 0 `shouldBe` True)
-                        else reachesZero (n - 1)
+reachesZero n = case fNonlinearZero n of 
+                  1 -> return (Just n, it (show n ++ " reaches zero") $ n > 0 `shouldBe` True)
+                  x -> return (Nothing, it (show n ++ " is smaller than zero") $ n > 0 `shouldBe` True)
+
+reachesZeroFail :: Monad m => Int -> m (Maybe Int, Spec)
+reachesZeroFail n = case fNonlinearZeroFail n of
+                        1 -> return (Just n, it (show n ++ " reaches zero") $ n > 0 `shouldBe` True)
+                        0 -> return (Nothing, it (show n ++ " was bigger than 4") $ n < 5 `shouldBe` True)
+                        x -> return (Nothing, it (show n ++ " is smaller than zero") $ n > 0 `shouldBe` True)
