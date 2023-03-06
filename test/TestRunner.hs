@@ -61,7 +61,7 @@ dependencyTesting steps [] _ _ = return steps                        -- end of r
 dependencyTesting (bs, specsequence, resMap) (Nothing:as) depFunc spectest = dependencyTesting (Nothing:bs, specsequence, resMap) as depFunc spectest -- skip testing values that are `Nothing` 
 dependencyTesting (bs, specsequence, resMap) (Just x : as) depFunc spectest = 
   case lookup x resMap of
-    --either the test already ran and was good, then we can add the result to the list of bs: 
+    --either the test already ran, then we can add the result to the list of bs: 
     Just res  -> dependencyTesting (res:bs, specsequence, resMap) as depFunc spectest
     --or not, now we need to test all its dependencies before x:
     Nothing ->
@@ -76,7 +76,7 @@ dependencyTesting (bs, specsequence, resMap) (Just x : as) depFunc spectest =
             then do 
               (b, spec) <- spectest x 
               dependencyTesting (b:bs, spec >> specsequence, (x, b): resMap ++ resMap') as depFunc spectest
-            else dependencyTesting (Nothing:bs, specsequence, resMap) as depFunc spectest
+            else dependencyTesting (Nothing:bs, specsequence, resMap ++ resMap') as depFunc spectest
 
 
 
