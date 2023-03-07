@@ -3,7 +3,7 @@
 module Main where
 
 import Control.Monad.Except (forM)
-import Control.Monad (foldM)
+import Control.Monad ( foldM, join )
 
 import Test.Hspec ( hspec, describe, Spec )
 
@@ -74,16 +74,15 @@ runnerNonLinear :: Eq a => Monad m
                   -> (a -> m (Maybe b, Spec))
                   -> m ([Maybe b], Spec)
 runnerNonLinear descr exs depFunc spectest = do
-  sequenced <- foldM (f tested) ([], return ()) exs
-  case sequenced of
-    (bs, specs) -> return (bs, describe descr specs)
-  where f tested (bs, specs) a = case a of
-            Nothing  -> return (Nothing:bs, specs)
-            Just val -> case lookup val tested of
-                          Nothing -> return (Nothing:bs, specs)
-                          Just (b, spec)  -> return (b:bs, spec >> specs)
   -- get map of all test runs, including all dependencies
   tested <- dependencyTesting [] (catMaybes exs) depFunc spectest
+  -- lookup results that belong to inputs
+  let results = map (join . fmap (`lookup` tested)) exs
+  -- extract results of test runs
+  let bs = map (join . fmap fst) results
+  -- extract and combine test display output
+  let specs = mapM_ snd (catMaybes results)
+  return (bs, describe descr specs)
 
 
 
