@@ -9,7 +9,7 @@ import Test.Hspec ( hspec, describe, Spec )
 
 import Spec.Tests
 import Spec.IOTest ( spec )
-import Data.Maybe (fromJust, isJust)
+import Data.Maybe (fromJust, isJust, catMaybes)
 import Data.List (transpose, delete)
 
 type Description = String
@@ -36,13 +36,12 @@ runner descr exs spectest = do
 ---------------------------- Non linear runner ---------------------
 
 dependencyTesting :: Eq a => Monad m => [(a, (Maybe b, Spec))]  -- Collection of result list
-                             -> [Maybe a]                          -- Values to be tested
+                             -> [a]                          -- Values to be tested
                              -> (a -> Maybe [a])                     -- DependencyFunction  
                              -> (a -> m (Maybe b, Spec))           -- spectest
                              -> m [(a, (Maybe b, Spec))]
 dependencyTesting steps [] _ _ = return steps                        -- end of recursion
-dependencyTesting resMap (Nothing:as) depFunc spectest = dependencyTesting resMap as depFunc spectest -- skip testing values that are `Nothing` 
-dependencyTesting resMap (Just x : as) depFunc spectest =
+dependencyTesting resMap (x : as) depFunc spectest =
   case lookup x resMap of
     --either the test already ran, then we can add the result to the list of bs: 
     Just _  -> dependencyTesting resMap as depFunc spectest
@@ -54,10 +53,10 @@ dependencyTesting resMap (Just x : as) depFunc spectest =
            testResult <- spectest x
            dependencyTesting  ((x, testResult):resMap) as depFunc spectest
         Just deps -> do
-          resMap' <- dependencyTesting resMap (map Just deps) depFunc spectest
-          let dependenciesFullfilled = all ((== True) . (\dep -> case lookup dep resMap' of
-                                                                  Just (Just _, _) -> True
-                                                                  _                -> False))
+          resMap' <- dependencyTesting resMap deps depFunc spectest
+          let dependenciesFullfilled = all (\dep -> case lookup dep resMap' of
+                                                     Just (Just _, _) -> True
+                                                     _                -> False)
                                             deps
           if dependenciesFullfilled then do
                                       testResult <- spectest x
@@ -75,7 +74,6 @@ runnerNonLinear :: Eq a => Monad m
                   -> (a -> m (Maybe b, Spec))
                   -> m ([Maybe b], Spec)
 runnerNonLinear descr exs depFunc spectest = do
-  tested <- dependencyTesting [] exs depFunc spectest
   sequenced <- foldM (f tested) ([], return ()) exs
   case sequenced of
     (bs, specs) -> return (bs, describe descr specs)
@@ -84,6 +82,8 @@ runnerNonLinear descr exs depFunc spectest = do
             Just val -> case lookup val tested of
                           Nothing -> return (Nothing:bs, specs)
                           Just (b, spec)  -> return (b:bs, spec >> specs)
+  -- get map of all test runs, including all dependencies
+  tested <- dependencyTesting [] (catMaybes exs) depFunc spectest
 
 
 
