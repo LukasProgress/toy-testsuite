@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use lambda-case" #-}
 module Main where
 
 import Control.Monad.Except (forM)
@@ -22,7 +24,7 @@ runner :: Monad m
             -> m ([Maybe b], Spec)
 runner descr exs spectest = do
   dependencyFullfilled <- filterDependentTests exs
-  tested <- forM dependencyFullfilled $ \a -> case a of 
+  tested <- forM dependencyFullfilled $ \a -> case a of
                                                 Nothing -> return (Nothing, pure ())
                                                 Just xs -> spectest xs
   sequenced <- foldM f ([], return ()) tested
@@ -52,46 +54,52 @@ evalOrderWorker vals deps order = return (f vals deps order)
 
   -}
 
-dependencyTesting :: Eq a => Monad m => ([Maybe b], Spec, [(a, Maybe b)])  -- Collection of result list
+dependencyTesting :: Eq a => Monad m => [(a, (Maybe b, Spec))]  -- Collection of result list
                              -> [Maybe a]                          -- Values to be tested
                              -> (a -> Maybe [a])                     -- DependencyFunction  
                              -> (a -> m (Maybe b, Spec))           -- spectest
-                             -> m ([Maybe b], Spec, [(a, Maybe b)]) 
+                             -> m [(a, (Maybe b, Spec))]
 dependencyTesting steps [] _ _ = return steps                        -- end of recursion
-dependencyTesting (bs, specsequence, resMap) (Nothing:as) depFunc spectest = dependencyTesting (Nothing:bs, specsequence, resMap) as depFunc spectest -- skip testing values that are `Nothing` 
-dependencyTesting (bs, specsequence, resMap) (Just x : as) depFunc spectest = 
+dependencyTesting resMap (Nothing:as) depFunc spectest = dependencyTesting resMap as depFunc spectest -- skip testing values that are `Nothing` 
+dependencyTesting resMap (Just x : as) depFunc spectest =
   case lookup x resMap of
     --either the test already ran, then we can add the result to the list of bs: 
-    Just res  -> dependencyTesting (res:bs, specsequence, resMap) as depFunc spectest
+    Just _  -> dependencyTesting resMap as depFunc spectest
     --or not, now we need to test all its dependencies before x:
     Nothing ->
-      let dependencies = depFunc x 
+      let dependencies = depFunc x
       in case dependencies of
         Nothing -> do                                  -- if no deps, simply test and add result to bs, add spec to specsequence and add the mapping x->b to the resultmap
-           (b, spec) <- spectest x 
-           dependencyTesting (b:bs, spec >> specsequence, (x, b):resMap) as depFunc spectest
+           testResult <- spectest x
+           dependencyTesting  ((x, testResult):resMap) as depFunc spectest
         Just deps -> do
-          (bs', specsequence', resMap') <- dependencyTesting ([], specsequence, resMap) (map Just deps) depFunc spectest
-          if all isJust bs' 
-            then do 
-              (b, spec) <- spectest x 
-              dependencyTesting (b:bs, spec >> specsequence, (x, b): resMap ++ resMap') as depFunc spectest
-            else dependencyTesting (Nothing:bs, specsequence, resMap ++ resMap') as depFunc spectest
+          resMap' <- dependencyTesting resMap (map Just deps) depFunc spectest
+          let dependenciesFullfilled = all ((== True) . (\dep -> isJust (lookup dep resMap'))) deps
+          if dependenciesFullfilled then do
+                                      testResult <- spectest x
+                                      dependencyTesting  ((x, testResult):resMap) as depFunc spectest
+                                    else dependencyTesting resMap' as depFunc spectest
 
 
 
 
-runnerNonLinear :: Eq a => Monad m 
+
+runnerNonLinear :: Eq a => Monad m
                   => Description
                   -> [Maybe a]                     -- Values to be tested
                   -> (a -> Maybe [a])                -- Function for dependencies
                   -> (a -> m (Maybe b, Spec))
                   -> m ([Maybe b], Spec)
-runnerNonLinear descr exs depFunc spectest = do                      
-  tested <- dependencyTesting ([], return (), []) exs depFunc spectest
-  case tested of
-    (bs, specs, _) -> return (bs, describe descr specs)
-                    
+runnerNonLinear descr exs depFunc spectest = do
+  tested <- dependencyTesting [] exs depFunc spectest
+  sequenced <- foldM (f tested) ([], return ()) exs
+  case sequenced of
+    (bs, specs) -> return (bs, describe descr specs)
+  where f tested (bs, specs) a = case a of 
+            Nothing  -> return (Nothing:bs, specs)
+            Just val -> case lookup val tested of
+                          Nothing -> return (Nothing:bs, specs)
+                          Just (b, spec)  -> return (b:bs, spec >> specs)
 
 
 
@@ -123,7 +131,7 @@ main = do
 
 
     -----------------Monadische Werte-----------------
-    
+
     (_, mv) <- runner "Reading in a file of numbers, are they bigger than these examples?" [examples] (\[x] -> Spec.IOTest.spec x)
 
     ----------------Nicht lineare Tests---------------
