@@ -33,26 +33,7 @@ runner descr exs spectest = do
   where f (bs, specsequence) (b, spec) = return (b:bs, spec >> specsequence)
 
 
----------------------------- NOn linear runner ---------------------
-{-
-getEvalOrder :: Monad m => [(Maybe a, a -> [a])] -> m [Maybe a]
-getEvalOrder exs = 
-  let listsOfDeps = map (\(x, f) -> case x of                     -- listsOfDeps hat dependencies für Element exs_i an index i
-                                            Nothing -> []
-                                            Just v -> f v)
-                        exs 
-  in evalOrderWorker (map fst exs) listsOfDeps
-                    
--- Bin mir nicht sicher, ob das so funktionieren kann. Wollte es so haben, dass die Liste deps wiederholt abgelaufen wird. 
--- Falls deps an einer Stelle i empty ist, dann hat vals and index i keine dependencies die nicht erfüllt wurden -> nächstes Element in Testreihenfolge order
---                                                                                                               -> vals_i muss aus allen deps gelöscht werden
-evalOrderWorker :: Monad m => [Maybe a] -> [[a]] -> m [Maybe a]
-evalOrderWorker vals deps order = return (f vals deps order)
-  where f vs [] ord = ord
-        f (v:vs) ([]:ds) ord = evalOrderWorker (delete v vals) (map (delete v) deps) (order ++ [v]) 
-        f (v:vs) (d:ds) ord = f vs ds ord
-
-  -}
+---------------------------- Non linear runner ---------------------
 
 dependencyTesting :: Eq a => Monad m => [(a, (Maybe b, Spec))]  -- Collection of result list
                              -> [Maybe a]                          -- Values to be tested
@@ -74,7 +55,7 @@ dependencyTesting resMap (Just x : as) depFunc spectest =
            dependencyTesting  ((x, testResult):resMap) as depFunc spectest
         Just deps -> do
           resMap' <- dependencyTesting resMap (map Just deps) depFunc spectest
-          let dependenciesFullfilled = all ((== True) . (\dep -> case lookup dep resMap' of 
+          let dependenciesFullfilled = all ((== True) . (\dep -> case lookup dep resMap' of
                                                                   Just (Just _, _) -> True
                                                                   _                -> False))
                                             deps
@@ -98,7 +79,7 @@ runnerNonLinear descr exs depFunc spectest = do
   sequenced <- foldM (f tested) ([], return ()) exs
   case sequenced of
     (bs, specs) -> return (bs, describe descr specs)
-  where f tested (bs, specs) a = case a of 
+  where f tested (bs, specs) a = case a of
             Nothing  -> return (Nothing:bs, specs)
             Just val -> case lookup val tested of
                           Nothing -> return (Nothing:bs, specs)
@@ -143,9 +124,14 @@ main = do
 
     --(_, nonlinfail) <- runner "Does a number reach zero, but not bigger than 4?" [examples] (\[x] -> Spec.Tests.reachesZeroFail x)
 
-    (_, runNonLin) <- runnerNonLinear "Testing nonlinear runner" examples (\x -> if x == 0 then Nothing else Just [x-1]) Spec.Tests.reachesZero
+    let minusOneDepFunc x = if x == 0 then Nothing else Just [x-1]
 
-    (_, runNonLinFail) <- runnerNonLinear "Testing nonlinear runner failing a test" examples (\x -> if x == 0 then Nothing else Just [x-1]) Spec.Tests.reachesZeroFail
+    (_, runNonLin) <- runnerNonLinear "Testing nonlinear runner" examples minusOneDepFunc Spec.Tests.reachesZero
+
+    (_, runNonLinFail) <- runnerNonLinear "Testing nonlinear runner failing a test" examples minusOneDepFunc Spec.Tests.reachesZeroFail
+
+    (_, runNonLinFail2) <- runnerNonLinear "Second example with different example list" (map Just [1, 3]) minusOneDepFunc Spec.Tests.reachesZeroFail
+
     hspec $ do
         -- biggerThan5spec -- 5 failures
         -- evenSpec        -- 5 failures
@@ -154,3 +140,4 @@ main = do
         mv
         runNonLin
         runNonLinFail
+        runNonLinFail2
