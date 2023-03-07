@@ -74,7 +74,10 @@ dependencyTesting resMap (Just x : as) depFunc spectest =
            dependencyTesting  ((x, testResult):resMap) as depFunc spectest
         Just deps -> do
           resMap' <- dependencyTesting resMap (map Just deps) depFunc spectest
-          let dependenciesFullfilled = all ((== True) . (\dep -> isJust (lookup dep resMap'))) deps
+          let dependenciesFullfilled = all ((== True) . (\dep -> case lookup dep resMap' of 
+                                                                  Just (Just _, _) -> True
+                                                                  _                -> False))
+                                            deps
           if dependenciesFullfilled then do
                                       testResult <- spectest x
                                       dependencyTesting  ((x, testResult):resMap) as depFunc spectest
