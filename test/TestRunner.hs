@@ -87,17 +87,10 @@ runnerNonLinear descr exs depFunc spectest = do
 
 
 
-fromTo :: Int -> Int -> [Int]
-fromTo x y | x > y = []
-           | otherwise = x : fromTo (x + 1) y
-
-
-
-
 
 main :: IO ()
 main = do
-    let examples = map Just $ fromTo 1 10
+    let examples = map Just [1..10]
     print examples
     (biggerThan5examples, biggerThan5spec) <- runner "Only examples bigger than 5" [examples] (\[ex] -> Spec.Tests.biggerThan5 ex)
 
