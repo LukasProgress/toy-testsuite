@@ -1,5 +1,6 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use lambda-case" #-}
+{-# LANGUAGE GADTs #-}
 module Main where
 
 import Control.Monad.Except (forM)
@@ -11,8 +12,12 @@ import Spec.Tests
 import Spec.IOTest ( spec )
 import Data.Maybe (fromJust, isJust, catMaybes)
 import Data.List (transpose, delete)
+import Control.Monad.Reader
+import Control.Monad.State
 
 type Description = String
+
+
 
 filterDependentTests :: Monad m => [[Maybe a]] -> m [Maybe [a]]
 filterDependentTests exs = return (foldr (zipWith (\x xs -> (:) <$> x <*> xs)) (repeat (Just [])) exs)
@@ -85,6 +90,70 @@ runnerNonLinear descr exs depFunc spectest = do
   return (bs, describe descr specs)
 
 
+-----------------------------------------------------------------------------------
+---------Building it as a Monad-----------
+data Config = DefConf | PendingConf
+
+data TestResults where
+  TestResults :: Eq a => [Maybe a] -> TestResults
+
+data DepState = DepState {count :: Int
+                         , tests :: [(Int, TestResults)]
+                         , testSpecs :: Spec
+                         }
+
+initialDepState :: DepState
+initialDepState = DepState {count = 0, tests = [], testSpecs = return ()}
+
+-- TestState Monad: 
+type TestState = ReaderT Config (State DepState)
+
+------------------------------------------
+
+runTest :: Eq a => Monad m =>
+                    Description
+                  -> [Maybe a]                     -- Values to be tested
+                  -> (a -> Maybe [a])                -- Function for dependencies
+                  -> (a -> m (Maybe b, Spec))
+                  -> TestState Spec
+runTest descr exs depFunc spectest = do
+  -- get map of all test runs, including all dependencies
+  tested <- dependencyTestingM [] (catMaybes exs) depFunc spectest
+  -- lookup results that belong to inputs
+  let results = map (join . fmap (`lookup` tested)) exs
+  -- extract results of test runs
+  let bs = map (join . fmap fst) results
+  -- extract and combine test display output
+  let specs = mapM_ snd (catMaybes results)
+  return (bs, describe descr specs)
+
+dependencyTestingM :: Eq a => Monad m => [(a, (Maybe b, Spec))]  -- Collection of result list
+                             -> [a]                          -- Values to be tested
+                             -> (a -> Maybe [a])                     -- DependencyFunction  
+                             -> (a -> m (Maybe b, Spec))           -- spectest
+                             -> m [(a, (Maybe b, Spec))]
+dependencyTestingM steps [] _ _ = return steps                        -- end of recursion
+dependencyTestingM resMap (x : as) depFunc spectest =
+  case lookup x resMap of
+    --either the test already ran, then we can add the result to the list of bs: 
+    Just _  -> dependencyTesting resMap as depFunc spectest
+    --or not, now we need to test all its dependencies before x:
+    Nothing ->
+      let dependencies = depFunc x
+      in case dependencies of
+        Nothing -> do                                  -- if no deps, simply test and add result to bs, add spec to specsequence and add the mapping x->b to the resultmap
+           testResult <- spectest x
+           dependencyTesting  ((x, testResult):resMap) as depFunc spectest
+        Just deps -> do
+          resMap' <- dependencyTesting resMap deps depFunc spectest
+          let dependenciesFullfilled = all (\dep -> case lookup dep resMap' of
+                                                     Just (Just _, _) -> True
+                                                     _                -> False)
+                                            deps
+          if dependenciesFullfilled then do
+                                      testResult <- spectest x
+                                      dependencyTesting  ((x, testResult):resMap) as depFunc spectest
+                                    else dependencyTesting resMap' as depFunc spectest
 
 
 main :: IO ()
@@ -111,10 +180,6 @@ main = do
     (_, mv) <- runner "Reading in a file of numbers, are they bigger than these examples?" [examples] (\[x] -> Spec.IOTest.spec x)
 
     ----------------Nicht lineare Tests---------------
-
-    --(_, nonlin) <- runner "Does a number reach zero if you substract 1 repeatedly?" [examples] (\[x] -> Spec.Tests.reachesZero x)
-
-    --(_, nonlinfail) <- runner "Does a number reach zero, but not bigger than 4?" [examples] (\[x] -> Spec.Tests.reachesZeroFail x)
 
     let minusOneDepFunc x = if x == 0 then Nothing else Just [x-1]
 
