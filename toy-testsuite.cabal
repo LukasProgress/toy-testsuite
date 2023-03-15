@@ -55,7 +55,9 @@ library
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base ^>=4.15.1.0
+    build-depends:    base >=4.15.1.0
+                    , dependent-map
+                    , data-default
 
     -- Directories containing source files.
     hs-source-dirs:   src
@@ -80,6 +82,6 @@ test-suite toy-testsuite-test
                       , Spec.IOTest
 
     -- Test dependencies.
-    build-depends:    base ^>=4.15.1.0
+    build-depends:    base >=4.15.1.0
                       , hspec
                       , mtl
