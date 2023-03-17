@@ -1,6 +1,8 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use lambda-case" #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleContexts #-}
 module Main where
 
 import Control.Monad.Except (forM)
@@ -94,66 +96,81 @@ runnerNonLinear descr exs depFunc spectest = do
 ---------Building it as a Monad-----------
 data Config = DefConf | PendingConf
 
-data TestResults where
-  TestResults :: Eq a => [Maybe a] -> TestResults
+data TestResult = forall a. TestResult (Int, [Maybe a])
 
-data DepState = DepState {count :: Int
-                         , tests :: [(Int, TestResults)]
+type TestResults = [TestResult]
+
+data TestState = TestState {count :: Int
+                         , tests :: TestResults
                          , testSpecs :: Spec
                          }
 
-initialDepState :: DepState
-initialDepState = DepState {count = 0, tests = [], testSpecs = return ()}
+initialTestState :: TestState
+initialTestState = TestState {count = 0, tests = [], testSpecs = return ()}
 
 -- TestState Monad: 
-type TestState = ReaderT Config (State DepState)
+newtype TestM m a = MkTestM {runTestM :: ReaderT Config (StateT TestState m) a}
+  deriving (Applicative, Functor, Monad, MonadIO)
+
+
+liftTestM :: (Monad m) => m a -> TestM m a
+liftTestM = MkTestM . lift . lift
 
 ------------------------------------------
+addTestResult :: MonadState TestState m => ([Maybe b], Spec) -> m ()
+addTestResult (result, spec) = modify (\s -> s {count = count s, 
+                                                tests = TestResult (count s, result) : tests s, 
+                                                testSpecs = spec >> testSpecs s})
+------------------------------------------
 
-runTest :: Eq a => Monad m =>
+runTest :: (Eq a, MonadState TestState (TestM m), MonadReader a0 (TestM m)) => Monad m =>
                     Description
                   -> [Maybe a]                     -- Values to be tested
                   -> (a -> Maybe [a])                -- Function for dependencies
                   -> (a -> m (Maybe b, Spec))
-                  -> TestState Spec
+                  -> TestM m ([Maybe b], Spec)
 runTest descr exs depFunc spectest = do
   -- get map of all test runs, including all dependencies
   tested <- dependencyTestingM [] (catMaybes exs) depFunc spectest
   -- lookup results that belong to inputs
+  conf <- ask
+  -- TODO: Somehow get the config to build in pending tests
   let results = map (join . fmap (`lookup` tested)) exs
   -- extract results of test runs
   let bs = map (join . fmap fst) results
   -- extract and combine test display output
   let specs = mapM_ snd (catMaybes results)
+  addTestResult (bs, describe descr specs)
   return (bs, describe descr specs)
 
-dependencyTestingM :: Eq a => Monad m => [(a, (Maybe b, Spec))]  -- Collection of result list
+dependencyTestingM :: Eq a => Monad m =>
+                             [(a, (Maybe b, Spec))]  -- Collection of result list
                              -> [a]                          -- Values to be tested
                              -> (a -> Maybe [a])                     -- DependencyFunction  
                              -> (a -> m (Maybe b, Spec))           -- spectest
-                             -> m [(a, (Maybe b, Spec))]
+                             -> TestM m [(a, (Maybe b, Spec))]
 dependencyTestingM steps [] _ _ = return steps                        -- end of recursion
 dependencyTestingM resMap (x : as) depFunc spectest =
   case lookup x resMap of
     --either the test already ran, then we can add the result to the list of bs: 
-    Just _  -> dependencyTesting resMap as depFunc spectest
+    Just _  -> dependencyTestingM resMap as depFunc spectest
     --or not, now we need to test all its dependencies before x:
     Nothing ->
       let dependencies = depFunc x
       in case dependencies of
         Nothing -> do                                  -- if no deps, simply test and add result to bs, add spec to specsequence and add the mapping x->b to the resultmap
-           testResult <- spectest x
-           dependencyTesting  ((x, testResult):resMap) as depFunc spectest
+           testResult <- liftTestM $ spectest x
+           dependencyTestingM ((x, testResult):resMap) as depFunc spectest
         Just deps -> do
-          resMap' <- dependencyTesting resMap deps depFunc spectest
+          resMap' <- dependencyTestingM resMap deps depFunc spectest
           let dependenciesFullfilled = all (\dep -> case lookup dep resMap' of
                                                      Just (Just _, _) -> True
                                                      _                -> False)
                                             deps
           if dependenciesFullfilled then do
-                                      testResult <- spectest x
-                                      dependencyTesting  ((x, testResult):resMap) as depFunc spectest
-                                    else dependencyTesting resMap' as depFunc spectest
+                                      testResult <- liftTestM $ spectest x
+                                      dependencyTestingM ((x, testResult):resMap) as depFunc spectest
+                                    else dependencyTestingM resMap' as depFunc spectest
 
 
 main :: IO ()
@@ -188,6 +205,11 @@ main = do
     (_, runNonLinFail) <- runnerNonLinear "Testing nonlinear runner failing a test" examples minusOneDepFunc Spec.Tests.reachesZeroFail
 
     (_, runNonLinFail2) <- runnerNonLinear "Second example with different example list" (map Just [1, 3]) minusOneDepFunc Spec.Tests.reachesZeroFail
+    
+    --------- Run tests with the TestM Monad --------------
+    
+    let config = DefConf
+    let testM = runTest "Testing nonlinear runner failing a test" examples minusOneDepFunc Spec.Tests.reachesZeroFail
 
     hspec $ do
         -- biggerThan5spec -- 5 failures
