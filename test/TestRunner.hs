@@ -110,7 +110,7 @@ initialTestState = TestState {count = 0, tests = [], testSpecs = return ()}
 
 -- TestState Monad: 
 newtype TestM m a = MkTestM {runTestM :: ReaderT Config (StateT TestState m) a}
-  deriving (Applicative, Functor, Monad, MonadIO)
+  deriving (Applicative, Functor, Monad, MonadIO, MonadState TestState, MonadReader Config)
 
 
 liftTestM :: (Monad m) => m a -> TestM m a
@@ -123,7 +123,7 @@ addTestResult (result, spec) = modify (\s -> s {count = count s,
                                                 testSpecs = spec >> testSpecs s})
 ------------------------------------------
 
-runTest :: (Eq a, MonadState TestState (TestM m), MonadReader a0 (TestM m)) => Monad m =>
+runTest :: (Eq a) => Monad m =>
                     Description
                   -> [Maybe a]                     -- Values to be tested
                   -> (a -> Maybe [a])                -- Function for dependencies
