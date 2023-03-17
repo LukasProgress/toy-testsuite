@@ -77,3 +77,6 @@ reachesZeroFail n = case fNonlinearZeroFail n of
                         1 -> return (Just n, it (show n ++ " reaches zero") $ n > 0 `shouldBe` True)
                         0 -> return (Nothing, it (show n ++ " was bigger than 4") $ n < 5 `shouldBe` True)
                         x -> return (Nothing, it (show n ++ " is smaller than zero") $ n > 0 `shouldBe` True)
+
+stringTest :: Monad m => String -> m (Maybe String, Spec)
+stringTest s = return (Just s, it "It works" $ s `shouldBe` s)

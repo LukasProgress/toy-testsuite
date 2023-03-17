@@ -207,11 +207,15 @@ main = do
     (_, runNonLinFail2) <- runnerNonLinear "Second example with different example list" (map Just [1, 3]) minusOneDepFunc Spec.Tests.reachesZeroFail
     
     --------- Run tests with the TestM Monad --------------
-    
+    -- Das geht bestimmt auch noch besser, dass man irgendwie die Testwerte anfässt muss man ja noch einbauen 
+
     let config = DefConf
         testM :: TestM IO ([Maybe Int], Spec)
         testM = runTest "Testing nonlinear runner failing a test" examples minusOneDepFunc Spec.Tests.reachesZeroFail 
-        testState = runReaderT (runTestM (testM >> get)) config
+        -- warum auch immer man immer die signatur der Tests mit angeben muss...
+        testM2 :: TestM IO ([Maybe String], Spec)
+        testM2 = runTest "Testing other type signature testResults" [Just "test"] (const Nothing) Spec.Tests.stringTest
+        testState = runReaderT (runTestM (testM >> testM2 >> get)) config
     finalState <- evalStateT testState initialTestState
 
     hspec $ do
