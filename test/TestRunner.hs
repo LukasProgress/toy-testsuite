@@ -209,9 +209,13 @@ main = do
     --------- Run tests with the TestM Monad --------------
     
     let config = DefConf
-    let testM = runTest "Testing nonlinear runner failing a test" examples minusOneDepFunc Spec.Tests.reachesZeroFail
+        testM :: TestM IO ([Maybe Int], Spec)
+        testM = runTest "Testing nonlinear runner failing a test" examples minusOneDepFunc Spec.Tests.reachesZeroFail 
+        testState = runReaderT (runTestM (testM >> get)) config
+    finalState <- evalStateT testState initialTestState
 
     hspec $ do
+      {-
         -- biggerThan5spec -- 5 failures
         -- evenSpec        -- 5 failures
         dependentSpec      -- 0 failures, dependent on the first two
@@ -220,3 +224,5 @@ main = do
         runNonLin
         runNonLinFail
         runNonLinFail2
+      -}
+      testSpecs finalState
