@@ -8,11 +8,11 @@ module Main where
 import Control.Monad.Except (forM)
 import Control.Monad ( foldM, join )
 
-import Test.Hspec ( hspec, describe, Spec )
+import Test.Hspec ( hspec, describe, Spec, pending, it )
 
 import Spec.Tests
 import Spec.IOTest ( spec )
-import Data.Maybe (fromJust, isJust, catMaybes)
+import Data.Maybe (fromJust, isJust, catMaybes, isNothing)
 import Data.List (transpose, delete)
 import Control.Monad.Reader
 import Control.Monad.State
@@ -120,7 +120,7 @@ liftTestM = MkTestM . lift . lift
 addTestResult :: MonadState TestState m => ([Maybe b], Spec) -> m ()
 addTestResult (result, spec) = modify (\s -> s {count = count s, 
                                                 tests = TestResult (count s, result) : tests s, 
-                                                testSpecs = spec >> testSpecs s})
+                                                testSpecs = testSpecs s >> spec})
 ------------------------------------------
 
 runTest :: (Eq a) => Monad m =>
@@ -134,8 +134,15 @@ runTest descr exs depFunc spectest = do
   tested <- dependencyTestingM [] (catMaybes exs) depFunc spectest
   -- lookup results that belong to inputs
   conf <- ask
-  -- TODO: Somehow get the config to build in pending tests
-  let results = map (join . fmap (`lookup` tested)) exs
+  -- TODO: Pending tests need to have more information. How?
+  let results = case conf of
+                  DefConf -> map (join . fmap (`lookup` tested)) exs
+                  PendingConf -> map (\a -> case a of 
+                                          Nothing -> Nothing
+                                          Just val -> case lookup val tested of
+                                              Nothing -> Just (Nothing, it "The dependencies for were not fullfilled" $ do pending)
+                                              Just x -> Just x) 
+                                 exs
   -- extract results of test runs
   let bs = map (join . fmap fst) results
   -- extract and combine test display output
@@ -149,7 +156,7 @@ dependencyTestingM :: Eq a => Monad m =>
                              -> (a -> Maybe [a])                     -- DependencyFunction  
                              -> (a -> m (Maybe b, Spec))           -- spectest
                              -> TestM m [(a, (Maybe b, Spec))]
-dependencyTestingM steps [] _ _ = return steps                        -- end of recursion
+dependencyTestingM steps [] _ _ = return steps                        
 dependencyTestingM resMap (x : as) depFunc spectest =
   case lookup x resMap of
     --either the test already ran, then we can add the result to the list of bs: 
@@ -209,13 +216,16 @@ main = do
     --------- Run tests with the TestM Monad --------------
     -- Das geht bestimmt auch noch besser, dass man irgendwie die Testwerte anfässt muss man ja noch einbauen 
 
-    let config = DefConf
+    let config = PendingConf
         testM :: TestM IO ([Maybe Int], Spec)
-        testM = runTest "Testing nonlinear runner failing a test" examples minusOneDepFunc Spec.Tests.reachesZeroFail 
+        testM = runTest "Testing Pendingconf (bigger than 5 should be pending)" examples minusOneDepFunc Spec.Tests.reachesZeroFail 
         -- warum auch immer man immer die signatur der Tests mit angeben muss...
         testM2 :: TestM IO ([Maybe String], Spec)
         testM2 = runTest "Testing other type signature testResults" [Just "test"] (const Nothing) Spec.Tests.stringTest
+
         testState = runReaderT (runTestM (testM >> testM2 >> get)) config
+
+
     finalState <- evalStateT testState initialTestState
 
     hspec $ do
