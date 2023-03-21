@@ -96,7 +96,7 @@ runnerNonLinear descr exs depFunc spectest = do
 ---------Building it as a Monad-----------
 data Config = DefConf | PendingConf
 
-data TestResult = forall a. TestResult (Int, [Maybe a])
+data TestResult = forall a b. TestResult (Int, [Maybe b])
 
 type TestResults = [TestResult]
 
@@ -118,9 +118,13 @@ liftTestM = MkTestM . lift . lift
 
 ------------------------------------------
 addTestResult :: MonadState TestState m => ([Maybe b], Spec) -> m ()
-addTestResult (result, spec) = modify (\s -> s {count = count s, 
+addTestResult (result, spec) = modify (\s -> s {count = count s + 1, 
                                                 tests = TestResult (count s, result) : tests s, 
                                                 testSpecs = testSpecs s >> spec})
+
+
+getTestId :: MonadState TestState m => m Int
+getTestId = gets count
 ------------------------------------------
 
 runTest :: (Eq a) => Monad m =>
@@ -128,7 +132,7 @@ runTest :: (Eq a) => Monad m =>
                   -> [Maybe a]                     -- Values to be tested
                   -> (a -> Maybe [a])                -- Function for dependencies
                   -> (a -> m (Maybe b, Spec))
-                  -> TestM m ([Maybe b], Spec)
+                  -> TestM m Int                   -- returns just the id of the test
 runTest descr exs depFunc spectest = do
   -- get map of all test runs, including all dependencies
   tested <- dependencyTestingM [] (catMaybes exs) depFunc spectest
@@ -147,8 +151,9 @@ runTest descr exs depFunc spectest = do
   let bs = map (join . fmap fst) results
   -- extract and combine test display output
   let specs = mapM_ snd (catMaybes results)
+  testId <- getTestId
   addTestResult (bs, describe descr specs)
-  return (bs, describe descr specs)
+  return testId
 
 dependencyTestingM :: Eq a => Monad m =>
                              [(a, (Maybe b, Spec))]  -- Collection of result list
@@ -216,11 +221,11 @@ main = do
     --------- Run tests with the TestM Monad --------------
     -- Das geht bestimmt auch noch besser, dass man irgendwie die Testwerte anfässt muss man ja noch einbauen 
 
-    let config = PendingConf
-        testM :: TestM IO ([Maybe Int], Spec)
+    let config = DefConf
+        testM :: TestM IO Int
         testM = runTest "Testing Pendingconf (bigger than 5 should be pending)" examples minusOneDepFunc Spec.Tests.reachesZeroFail 
         -- warum auch immer man immer die signatur der Tests mit angeben muss...
-        testM2 :: TestM IO ([Maybe String], Spec)
+        testM2 :: TestM IO Int
         testM2 = runTest "Testing other type signature testResults" [Just "test"] (const Nothing) Spec.Tests.stringTest
 
         testState = runReaderT (runTestM (testM >> testM2 >> get)) config
