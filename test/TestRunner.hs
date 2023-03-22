@@ -126,12 +126,13 @@ addTestResult (result, spec) = modify (\s -> s {count = count s + 1,
 getTestId :: MonadState TestState m => m Int
 getTestId = gets count
 
+{-
 extractDeps :: MonadState TestState m => [Int] -> m [[Maybe b]]
 extractDeps ids = do 
-  tests <- gets tests
+  
   results <- map (`lookup` tests) ids
   return results
-------------------------------------------
+------------------------------------------}
 
 runTest :: (Eq a) => Monad m =>
                     Description
@@ -141,7 +142,8 @@ runTest :: (Eq a) => Monad m =>
                   -> TestM m Int                   -- returns just the id of the test
 runTest descr exs (depFunc, depIds) spectest = do
   conf <- ask
-  verticalDependencies <- extractDeps depIds
+  tests <- gets tests
+  --sverticalDependencies <- extractDeps depIds
 
   tested <- dependencyTestingM [] (catMaybes exs) depFunc spectest
   
