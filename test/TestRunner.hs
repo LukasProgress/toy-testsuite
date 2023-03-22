@@ -125,20 +125,27 @@ addTestResult (result, spec) = modify (\s -> s {count = count s + 1,
 
 getTestId :: MonadState TestState m => m Int
 getTestId = gets count
+
+extractDeps :: MonadState TestState m => [Int] -> m [[Maybe b]]
+extractDeps ids = do 
+  tests <- gets tests
+  results <- map (`lookup` tests) ids
+  return results
 ------------------------------------------
 
 runTest :: (Eq a) => Monad m =>
                     Description
                   -> [Maybe a]                     -- Values to be tested
-                  -> (a -> Maybe [a])                -- Function for dependencies
+                  -> (a -> Maybe [a], [Int])                -- Function for dependencies
                   -> (a -> m (Maybe b, Spec))
                   -> TestM m Int                   -- returns just the id of the test
-runTest descr exs depFunc spectest = do
-  -- get map of all test runs, including all dependencies
-  tested <- dependencyTestingM [] (catMaybes exs) depFunc spectest
-  -- lookup results that belong to inputs
+runTest descr exs (depFunc, depIds) spectest = do
   conf <- ask
-  -- TODO: Pending tests need to have more information. How?
+  verticalDependencies <- extractDeps depIds
+
+  tested <- dependencyTestingM [] (catMaybes exs) depFunc spectest
+  
+
   let results = case conf of
                   DefConf -> map (join . fmap (`lookup` tested)) exs
                   PendingConf -> map (\a -> case a of 
@@ -185,6 +192,18 @@ dependencyTestingM resMap (x : as) depFunc spectest =
                                     else dependencyTestingM resMap' as depFunc spectest
 
 
+-- The tests: 
+-----------------Put all tests to be run here: ---------------------
+testM :: TestM IO TestState
+testM = do
+  let examples = map Just [1..10]
+      minusOneDepFunc x = if x == 0 then Nothing else Just [x-1]
+  test1 <- runTest "Testing Pendingconf (bigger than 5 should be pending)" examples (minusOneDepFunc, []) Spec.Tests.reachesZeroFail 
+  test2 <- runTest "Testing other type signature testResults" [Just "test"] (const Nothing, []) Spec.Tests.stringTest
+  get
+
+---------------------------------------------------------------------
+
 main :: IO ()
 main = do
     let examples = map Just [1..10]
@@ -214,22 +233,15 @@ main = do
 
     (_, runNonLin) <- runnerNonLinear "Testing nonlinear runner" examples minusOneDepFunc Spec.Tests.reachesZero
 
-    (_, runNonLinFail) <- runnerNonLinear "Testing nonlinear runner failing a test" examples minusOneDepFunc Spec.Tests.reachesZeroFail
+    (_, runNonLinFail) <- runnerNonLinear "Testing nonlinear runner failing a test" examples (minusOneDepFunc) Spec.Tests.reachesZeroFail
 
-    (_, runNonLinFail2) <- runnerNonLinear "Second example with different example list" (map Just [1, 3]) minusOneDepFunc Spec.Tests.reachesZeroFail
+    (_, runNonLinFail2) <- runnerNonLinear "Second example with different example list" (map Just [1, 3]) (minusOneDepFunc) Spec.Tests.reachesZeroFail
     
     --------- Run tests with the TestM Monad --------------
     -- Das geht bestimmt auch noch besser, dass man irgendwie die Testwerte anfässt muss man ja noch einbauen 
 
     let config = DefConf
-        testM :: TestM IO Int
-        testM = runTest "Testing Pendingconf (bigger than 5 should be pending)" examples minusOneDepFunc Spec.Tests.reachesZeroFail 
-        -- warum auch immer man immer die signatur der Tests mit angeben muss...
-        testM2 :: TestM IO Int
-        testM2 = runTest "Testing other type signature testResults" [Just "test"] (const Nothing) Spec.Tests.stringTest
-
-        testState = runReaderT (runTestM (testM >> testM2 >> get)) config
-
+        testState = runReaderT (runTestM testM) config
 
     finalState <- evalStateT testState initialTestState
 
