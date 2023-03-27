@@ -157,10 +157,9 @@ runTest :: (Eq a) => Monad m =>
                   -> TestM m (Int, [Maybe b])                   -- returns just the id of the test
 runTest descr exs (depFunc, depIds) spectest = do
   conf <- ask
-  tests <- extractDeps depIds exs
+  horizontalDepTests <- extractDeps depIds exs
 
-  tested <- dependencyTestingM [] (catMaybes exs) depFunc spectest
-  
+  tested <- dependencyTestingM [] horizontalDepTests depFunc spectest
 
   let results = case conf of
                   DefConf -> map (join . fmap (`lookup` tested)) exs
@@ -180,12 +179,13 @@ runTest descr exs (depFunc, depIds) spectest = do
 
 dependencyTestingM :: Eq a => Monad m =>
                              [(a, (Maybe b, Spec))]  -- Collection of result list
-                             -> [a]                          -- Values to be tested
+                             -> [Maybe a]                          -- Values to be tested
                              -> (a -> Maybe [a])                     -- DependencyFunction  
                              -> (a -> m (Maybe b, Spec))           -- spectest
                              -> TestM m [(a, (Maybe b, Spec))]
-dependencyTestingM steps [] _ _ = return steps                        
-dependencyTestingM resMap (x : as) depFunc spectest =
+dependencyTestingM steps [] _ _ = return steps
+dependencyTestingM steps (Nothing: as) depFunc spectest = dependencyTestingM steps as depFunc spectest                  
+dependencyTestingM resMap (Just x : as) depFunc spectest =
   case lookup x resMap of
     --either the test already ran, then we can add the result to the list of bs: 
     Just _  -> dependencyTestingM resMap as depFunc spectest
@@ -197,7 +197,7 @@ dependencyTestingM resMap (x : as) depFunc spectest =
            testResult <- liftTestM $ spectest x
            dependencyTestingM ((x, testResult):resMap) as depFunc spectest
         Just deps -> do
-          resMap' <- dependencyTestingM resMap deps depFunc spectest
+          resMap' <- dependencyTestingM resMap (map Just deps) depFunc spectest
           let dependenciesFullfilled = all (\dep -> case lookup dep resMap' of
                                                      Just (Just _, _) -> True
                                                      _                -> False)
@@ -212,17 +212,16 @@ dependencyTestingM resMap (x : as) depFunc spectest =
 -----------------Put all tests to be run here: ---------------------
 testM :: TestM IO TestState
 testM = do
-  let examples = map Just [1..10]
+  let examples = map Just [1..20]
       minusOneDepFunc x = if x == 0 then Nothing else Just [x-1]
+      timesTwoDepFunc x = if x < 30 then Just[x * 2] else Nothing
   -- testing vertical dependencies: 
   (test1, res) <- runTest "Testing Pendingconf (bigger than 5 should be pending)" examples (minusOneDepFunc, []) Spec.Tests.reachesZeroFail 
-  test2 <- runTest "Testing other type signature testResults" [Just "test"] (const Nothing, []) Spec.Tests.stringTest
-  ---
   --- testing horizontal dependencies: 
-  (vert1, res1) <- runTest "`parsing` a file -> 5 is supposed to fail" examples (const Nothing, []) Spec.HorizontalDependency.parseTest
+  (vert1, res1) <- runTest "`parsing` a file -> n < 3 is supposed to fail" examples (const Nothing, []) Spec.HorizontalDependency.parseTest
   (vertTest, res2) <- runTest "Testing out direct dependency, working with results" res1 (const Nothing, []) Spec.HorizontalDependency.typechecktest
-  (vertTest2, _) <- runTest "Testing out vertical dependencies " res2 (const Nothing, [vertTest]) Spec.HorizontalDependency.typechecktest
-  (vertTest3, _) <- runTest "Testing out vertical dependencies " res2 (const Nothing, [vertTest, test1]) Spec.HorizontalDependency.typechecktest
+  (vertTest2, _) <- runTest "Testing out vertical dependencies " res2 (const Nothing, [vertTest, test1]) Spec.HorizontalDependency.someOthertest
+  test3 <- runTest "Testing out everything together" examples (timesTwoDepFunc, [vertTest2]) Spec.HorizontalDependency.parseTest
   get
 
 ---------------------------------------------------------------------
@@ -273,10 +272,11 @@ main = do
         -- biggerThan5spec -- 5 failures
         -- evenSpec        -- 5 failures
         dependentSpec      -- 0 failures, dependent on the first two
-        doubleDependentSpec
+        
         mv
         runNonLin
         runNonLinFail
         runNonLinFail2
       -}
+      doubleDependentSpec
       testSpecs finalState
