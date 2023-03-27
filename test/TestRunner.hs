@@ -12,10 +12,14 @@ import Test.Hspec ( hspec, describe, Spec, pending, it )
 
 import Spec.Tests
 import Spec.IOTest ( spec )
+import Spec.HorizontalDependency
 import Data.Maybe (fromJust, isJust, catMaybes, isNothing)
 import Data.List (transpose, delete)
 import Control.Monad.Reader
 import Control.Monad.State
+import Data.Coerce
+import Unsafe.Coerce
+import Control.Monad.RWS (Any(Any))
 
 type Description = String
 
@@ -96,9 +100,9 @@ runnerNonLinear descr exs depFunc spectest = do
 ---------Building it as a Monad-----------
 data Config = DefConf | PendingConf
 
-data TestResult = forall a b. TestResult (Int, [Maybe b])
+data TestResult = forall b. TestResult [Maybe b]
 
-type TestResults = [TestResult]
+type TestResults = [(Int, TestResult)]
 
 data TestState = TestState {count :: Int
                          , tests :: TestResults
@@ -119,31 +123,41 @@ liftTestM = MkTestM . lift . lift
 ------------------------------------------
 addTestResult :: MonadState TestState m => ([Maybe b], Spec) -> m ()
 addTestResult (result, spec) = modify (\s -> s {count = count s + 1, 
-                                                tests = TestResult (count s, result) : tests s, 
+                                                tests = (count s, TestResult result) : tests s, 
                                                 testSpecs = testSpecs s >> spec})
 
 
 getTestId :: MonadState TestState m => m Int
 getTestId = gets count
 
-{-
-extractDeps :: MonadState TestState m => [Int] -> m [[Maybe b]]
-extractDeps ids = do 
-  
-  results <- map (`lookup` tests) ids
-  return results
-------------------------------------------}
+zipExsWithDeps :: [Maybe a] -> [[Maybe Any]] -> [Maybe a]
+zipExsWithDeps exs deps = case exs of 
+  [] -> []
+  (Nothing : xs) -> Nothing : zipExsWithDeps xs (map tail deps)
+  (Just x : xs) -> let d = map head deps 
+                   in (if all isJust d then Just x else Nothing)
+                      : zipExsWithDeps xs (map tail deps)
+
+
+extractDeps :: MonadState TestState m => [Int] -> [Maybe a] -> m [Maybe a]
+extractDeps ids exs = do 
+  s <- gets tests
+  let deps = map (\n -> case lookup n s of
+                          Just (TestResult d) -> unsafeCoerce d :: [Maybe Any])
+                 ids 
+      result = zipExsWithDeps exs deps
+  return result
+------------------------------------------
 
 runTest :: (Eq a) => Monad m =>
                     Description
                   -> [Maybe a]                     -- Values to be tested
                   -> (a -> Maybe [a], [Int])                -- Function for dependencies
                   -> (a -> m (Maybe b, Spec))
-                  -> TestM m Int                   -- returns just the id of the test
+                  -> TestM m (Int, [Maybe b])                   -- returns just the id of the test
 runTest descr exs (depFunc, depIds) spectest = do
   conf <- ask
-  tests <- gets tests
-  --sverticalDependencies <- extractDeps depIds
+  tests <- extractDeps depIds exs
 
   tested <- dependencyTestingM [] (catMaybes exs) depFunc spectest
   
@@ -162,7 +176,7 @@ runTest descr exs (depFunc, depIds) spectest = do
   let specs = mapM_ snd (catMaybes results)
   testId <- getTestId
   addTestResult (bs, describe descr specs)
-  return testId
+  return (testId, bs)
 
 dependencyTestingM :: Eq a => Monad m =>
                              [(a, (Maybe b, Spec))]  -- Collection of result list
@@ -200,8 +214,15 @@ testM :: TestM IO TestState
 testM = do
   let examples = map Just [1..10]
       minusOneDepFunc x = if x == 0 then Nothing else Just [x-1]
-  test1 <- runTest "Testing Pendingconf (bigger than 5 should be pending)" examples (minusOneDepFunc, []) Spec.Tests.reachesZeroFail 
+  -- testing vertical dependencies: 
+  (test1, res) <- runTest "Testing Pendingconf (bigger than 5 should be pending)" examples (minusOneDepFunc, []) Spec.Tests.reachesZeroFail 
   test2 <- runTest "Testing other type signature testResults" [Just "test"] (const Nothing, []) Spec.Tests.stringTest
+  ---
+  --- testing horizontal dependencies: 
+  (vert1, res1) <- runTest "`parsing` a file -> 5 is supposed to fail" examples (const Nothing, []) Spec.HorizontalDependency.parseTest
+  (vertTest, res2) <- runTest "Testing out direct dependency, working with results" res1 (const Nothing, []) Spec.HorizontalDependency.typechecktest
+  (vertTest2, _) <- runTest "Testing out vertical dependencies " res2 (const Nothing, [vertTest]) Spec.HorizontalDependency.typechecktest
+  (vertTest3, _) <- runTest "Testing out vertical dependencies " res2 (const Nothing, [vertTest, test1]) Spec.HorizontalDependency.typechecktest
   get
 
 ---------------------------------------------------------------------
