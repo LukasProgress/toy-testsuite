@@ -221,6 +221,7 @@ testM = do
   (vert1, res1) <- runTest "`parsing` a file -> n < 3 is supposed to fail" examples (const Nothing, []) Spec.HorizontalDependency.parseTest
   (vertTest, res2) <- runTest "Testing out direct dependency, working with results" res1 (const Nothing, []) Spec.HorizontalDependency.typechecktest
   (vertTest2, _) <- runTest "Testing out vertical dependencies " res2 (const Nothing, [vertTest, test1]) Spec.HorizontalDependency.someOthertest
+  depFuncTest <- runTest "Testing out dependency function x * 2" examples (timesTwoDepFunc, []) Spec.HorizontalDependency.parseTest  
   test3 <- runTest "Testing out everything together" examples (timesTwoDepFunc, [vertTest2]) Spec.HorizontalDependency.parseTest
   get
 
