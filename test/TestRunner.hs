@@ -1,6 +1,9 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use =<<" #-}
+
 module Main where
 
 import Control.Monad.Except (forM)
@@ -11,7 +14,7 @@ import Test.Hspec ( hspec, describe, Spec, pending, it )
 import Spec.Tests
 import Spec.IOTest ( spec )
 import Spec.HorizontalDependency
-import Data.Maybe (fromJust, isJust, catMaybes, isNothing)
+import Data.Maybe (fromJust, isJust, catMaybes, isNothing, fromMaybe)
 import Data.List (transpose, delete)
 import Control.Monad.Reader
 import Control.Monad.State
@@ -57,8 +60,8 @@ liftTestM = MkTestM . lift . lift
 
 -- Add a testresult (tuple of results and spec) to the state
 addTestResult :: MonadState TestState m => ([Maybe b], Spec) -> m ()
-addTestResult (result, spec) = modify (\s -> s {count = count s + 1, 
-                                                tests = (count s, TestResult result) : tests s, 
+addTestResult (result, spec) = modify (\s -> s {count = count s + 1,
+                                                tests = (count s, TestResult result) : tests s,
                                                 testSpecs = testSpecs s >> spec})
 
 -- get the current number in count
@@ -69,20 +72,20 @@ getTestId = gets count
 -- For horizontal dependencies: bringing together the current examples to be tested (exs)
 -- and filter them, so that only those for which the deps are not Nothing are kept as `Just` values
 zipExamplesWithDeps :: [Maybe a] -> [[Maybe Any]] -> [Maybe a]
-zipExamplesWithDeps exs deps = case exs of 
+zipExamplesWithDeps exs deps = case exs of
   [] -> []
   (Nothing : xs) -> Nothing : zipExamplesWithDeps xs (map tail deps)
-  (Just x : xs) -> let depsAtIndex = map head deps 
+  (Just x : xs) -> let depsAtIndex = map head deps
                    in (if all isJust depsAtIndex then Just x else Nothing)
                       : zipExamplesWithDeps xs (map tail deps)
 
 -- filter examples with a list of ids, which are the ids for horizontal dependencies
 extractDeps :: MonadState TestState m => [Int] -> [Maybe a] -> m [Maybe a]
-extractDeps ids exs = do 
+extractDeps ids exs = do
   stateTests <- gets tests
   let deps = map (\id -> case lookup id stateTests of
                           Just (TestResult res) -> unsafeCoerce res :: [Maybe Any])
-                 ids 
+                 ids
       result = zipExamplesWithDeps exs deps
   return result
 
@@ -114,11 +117,9 @@ runTest descr exs (depFunc, depIds) spectest = do
 
   let results = case conf of
                   DefConf -> map (join . fmap (`lookup` tested)) exs
-                  PendingConf -> map (\ex -> case ex of 
-                                          Nothing -> Nothing
-                                          Just val -> case lookup val tested of
-                                              Nothing -> Just (Nothing, it "The dependencies were not fullfilled" $ do pending)
-                                              Just x -> Just x) 
+                  PendingConf -> map (fmap (\val -> fromMaybe
+                    (Nothing, it "The dependencies were not fullfilled" $ do pending)
+                    (lookup val tested)))
                                  exs
   -- extract results of test runs
   let bs = map (join . fmap fst) results
@@ -139,7 +140,7 @@ dependencyTestingM :: Eq a => Monad m =>
                              -> (a -> m (Maybe b, Spec))           -- spectest
                              -> TestM m [(a, (Maybe b, Spec))]
 dependencyTestingM steps [] _ _ = return steps
-dependencyTestingM steps (Nothing: as) depFunc spectest = dependencyTestingM steps as depFunc spectest                  
+dependencyTestingM steps (Nothing: as) depFunc spectest = dependencyTestingM steps as depFunc spectest
 dependencyTestingM resMap (Just x : as) depFunc spectest =
   case lookup x resMap of
     --either the test already ran, then we can add the result to the list of bs: 
@@ -169,14 +170,14 @@ testM :: TestM IO TestState
 testM = do
   let examples = map Just [1..20]
       minusOneDepFunc x = if x == 0 then Nothing else Just [x-1]
-      timesTwoDepFunc x = if x < 30 then Just[x * 2] else Nothing
+      timesTwoDepFunc x = if x < 30 then Just [x * 2] else Nothing
   -- testing vertical dependencies: 
-  (test1, res) <- runTest "Testing Pendingconf (bigger than 5 should be pending)" examples (minusOneDepFunc, []) Spec.Tests.reachesZeroFail 
+  (test1, res) <- runTest "Testing Pendingconf (bigger than 5 should be pending)" examples (minusOneDepFunc, []) Spec.Tests.reachesZeroFail
   --- testing horizontal dependencies: 
   (vert1, res1) <- runTest "`parsing` a file -> n < 3 is supposed to fail" examples (const Nothing, []) Spec.HorizontalDependency.parseTest
   (vertTest, res2) <- runTest "Testing out direct dependency, working with results" res1 (const Nothing, []) Spec.HorizontalDependency.typechecktest
   (vertTest2, _) <- runTest "Testing out vertical dependencies " res2 (const Nothing, [vertTest, test1]) Spec.HorizontalDependency.someOthertest
-  depFuncTest <- runTest "Testing out dependency function x * 2" examples (timesTwoDepFunc, []) Spec.HorizontalDependency.parseTest  
+  depFuncTest <- runTest "Testing out dependency function x * 2" examples (timesTwoDepFunc, []) Spec.HorizontalDependency.parseTest
   test3 <- runTest "Testing out everything together" examples (timesTwoDepFunc, [vertTest2]) Spec.HorizontalDependency.parseTest
   get
 
