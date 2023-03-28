@@ -1,12 +1,15 @@
 module Spec.HorizontalDependency where
 
 import Test.Hspec
+import Data.Coerce (coerce)
 
+newtype ParseResult = MkPR { runPR :: String }
+  deriving (Show,Eq)
 
-parseTest :: Monad m => Int -> m (Maybe String, Spec)
+parseTest :: Monad m => Int -> m (Maybe ParseResult, Spec)
 parseTest n = let spec = it (show n ++ " is parsable as string") $ n < 3 `shouldBe` False
               in if n < 3 then return (Nothing, spec) 
-                           else return (Just (show n ++ ".parsed"), spec)
+                           else return (Just (coerce (show n ++ ".parsed")), spec)
 
 typechecktest :: Monad m => String -> m (Maybe String, Spec)
 typechecktest s = let spec = it (s ++ " is typecheckable") $ s `shouldBe` s
