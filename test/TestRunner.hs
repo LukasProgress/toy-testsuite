@@ -61,7 +61,7 @@ liftTestM = MkTestM . lift . lift
 -- Add a testresult (tuple of results and spec) to the state
 addTestResult :: MonadState TestState m => ([Maybe b], Spec) -> m ()
 addTestResult (result, spec) = modify (\s -> s {count = count s + 1,
-                                                tests = (count s, TestResult result) : tests s,
+                                                tests = (count s, fmap TestResult <$> result) : tests s,
                                                 testSpecs = testSpecs s >> spec})
 
 -- get the current number in count
@@ -113,6 +113,7 @@ runTest descr exs (depFunc, depIds) spectest = do
   conf <- ask
   horizontalDepTests <- extractDeps depIds exs
 
+  -- actually run tests
   tested <- dependencyTestingM [] horizontalDepTests depFunc spectest
 
   let results = case conf of
