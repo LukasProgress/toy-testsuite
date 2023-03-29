@@ -33,9 +33,9 @@ type Description = String
 data Config = DefConf | PendingConf
 
 -- The test results are stored via type hiding, as not all testresults will have the same type
-data TestResult = forall b. TestResult [Maybe b]
+data TestResult = forall b. TestResult b
 -- All results will also be stored with an index, which can be used to define horizontal dependencies
-type TestResults = [(Int, TestResult)]
+type TestResults = [(Int, [Maybe TestResult])]
 
 -- The Teststate:
 data TestState = TestState {count :: Int                  -- current highest index of testresults
@@ -71,7 +71,7 @@ getTestId = gets count
 
 -- For horizontal dependencies: bringing together the current examples to be tested (exs)
 -- and filter them, so that only those for which the deps are not Nothing are kept as `Just` values
-zipExamplesWithDeps :: [Maybe a] -> [[Maybe Any]] -> [Maybe a]
+zipExamplesWithDeps :: [Maybe a] -> [[Maybe TestResult]] -> [Maybe a]
 zipExamplesWithDeps exs deps = case exs of
   [] -> []
   (Nothing : xs) -> Nothing : zipExamplesWithDeps xs (map tail deps)
@@ -84,7 +84,7 @@ extractDeps :: MonadState TestState m => [Int] -> [Maybe a] -> m [Maybe a]
 extractDeps ids exs = do
   stateTests <- gets tests
   let deps = map (\id -> case lookup id stateTests of
-                          Just (TestResult res) -> unsafeCoerce res :: [Maybe Any])
+                          Just ms -> ms)
                  ids
       result = zipExamplesWithDeps exs deps
   return result
