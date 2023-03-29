@@ -108,9 +108,10 @@ runTest :: (Eq a) => Monad m =>
                   -> [Maybe a]                     -- Values to be tested
                   -> (a -> Maybe [a], [Int])                -- Function for dependencies
                   -> (a -> m (Maybe b, Spec))
-                  -> TestM m (Int, [Maybe b])                   -- returns just the id of the test
+                  -> TestM m Int                   -- returns just the id of the test
 runTest descr exs (depFunc, depIds) spectest = do
   conf <- ask
+  -- filter horizontal dependencies
   horizontalDepTests <- extractDeps depIds exs
 
   -- actually run tests
@@ -128,8 +129,37 @@ runTest descr exs (depFunc, depIds) spectest = do
   let specs = mapM_ snd (catMaybes results)
   testId <- getTestId
   addTestResult (bs, describe descr specs)
-  return (testId, bs)
+  return testId
 
+---------------------------------------------------------
+--------- Dependent tests (giving one id instead of a list of values for testing)------------
+
+extractExamples :: MonadState TestState m => Int -> m [Maybe TestResult]
+extractExamples id = do
+  t <- gets tests
+  return $ fromJust $ lookup id t
+
+
+runDependentTest :: (Eq a) => Monad m =>
+                    Description
+                  -> Int                                    -- Values to be tested
+                  -> (a -> Maybe [a], [Int])                -- Function for dependencies
+                  -> (a -> m (Maybe b, Spec))
+                  -> TestM m Int                            -- returns just the id of the test
+runDependentTest descr exId (depFunc, depIds) spectest = do
+  -- get the testresults associated with the given index
+  exs <- extractExamples exId
+  horizontalDepTests <- extractDeps depIds exs
+
+  -- run the tests (no vertical deps)
+  results <- mapM (liftTestM . spectest . unsafeCoerce) exs
+  -- extract results of test runs
+  let bs = map fst results
+  -- extract and combine test display output
+  let specs = mapM_ snd results
+  testId <- getTestId
+  addTestResult (bs, describe descr specs)
+  return testId
 
 -- The algorithm for vertical dependencies. Vertical dependencies are recursively calculated
 -- TODO: MAYBE it is possible to remember dependencies across different tests? But I am not sure, 
@@ -173,13 +203,11 @@ testM = do
       minusOneDepFunc x = if x == 0 then Nothing else Just [x-1]
       timesTwoDepFunc x = if x < 30 then Just [x * 2] else Nothing
   -- testing vertical dependencies: 
-  (test1, res) <- runTest "Testing Pendingconf (bigger than 5 should be pending)" examples (minusOneDepFunc, []) Spec.Tests.reachesZeroFail
+  vertTest <- runTest "Testing Pendingconf (bigger than 5 should be pending)" examples (minusOneDepFunc, []) Spec.Tests.reachesZeroFail
   --- testing horizontal dependencies: 
-  (vert1, res1) <- runTest "`parsing` a file -> n < 3 is supposed to fail" examples (const Nothing, []) Spec.HorizontalDependency.parseTest
-  (vertTest, res2) <- runTest "Testing out direct dependency, working with results" res1 (const Nothing, []) Spec.HorizontalDependency.typechecktest
-  (vertTest2, _) <- runTest "Testing out vertical dependencies " res2 (const Nothing, [vertTest, test1]) Spec.HorizontalDependency.someOthertest
-  depFuncTest <- runTest "Testing out dependency function x * 2" examples (timesTwoDepFunc, []) Spec.HorizontalDependency.parseTest
-  test3 <- runTest "Testing out everything together" examples (timesTwoDepFunc, [vertTest2]) Spec.HorizontalDependency.parseTest
+  horiz1 <- runTest "`parsing` a file -> n < 3 is supposed to fail" examples (const Nothing, []) Spec.HorizontalDependency.parseTest
+  vert1 <- runDependentTest "Testing out direct dependency, working with results" horiz1 (const Nothing, []) Spec.HorizontalDependency.typechecktest
+  
   get
 
 ---------------------------------------------------------------------

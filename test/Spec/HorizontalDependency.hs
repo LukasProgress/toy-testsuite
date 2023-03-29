@@ -15,7 +15,7 @@ parseTest n = let spec = it (show n ++ " is parsable as string") $ n < 3 `should
                            else return (Just (coerce (show n ++ ".parsed")), spec)
 
 typechecktest :: Monad m => ParseResult -> m (Maybe TypecheckResult, Spec)
-typechecktest s = let spec = it (show s ++ " is typecheckable") $ s `shouldBe` s
+typechecktest s = let spec = it (runPR s ++ " is typecheckable") $ s `shouldBe` s   -- How to get string back out after coerce?
                   in return (Just (coerce $ reverse $ show s), spec)
 
 -- someOtherTest takes a typecheck and returns a boolean array
