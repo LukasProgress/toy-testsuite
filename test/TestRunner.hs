@@ -134,8 +134,8 @@ runTest descr exs (depFunc, depIds) spectest = do
 ---------------------------------------------------------
 --------- Dependent tests (giving one id instead of a list of values for testing)------------
 
-extractExamples :: MonadState TestState m => Int -> m [Maybe TestResult]
-extractExamples id = do
+getExamplesById :: MonadState TestState m => Int -> m [Maybe TestResult]
+getExamplesById id = do
   t <- gets tests
   return $ fromJust $ lookup id t
 
@@ -147,19 +147,30 @@ runDependentTest :: (Eq a) => Monad m =>
                   -> (a -> m (Maybe b, Spec))
                   -> TestM m Int                            -- returns just the id of the test
 runDependentTest descr exId (depFunc, depIds) spectest = do
+  conf <- ask
   -- get the testresults associated with the given index
-  exs <- extractExamples exId
+  exs <- getExamplesById exId
   -- filter with dependencies
   horizontalDepTests <- extractDeps depIds exs
 
-  -- run the tests (no vertical deps)
-  results <- mapM (\ex -> case ex of 
-                    Nothing -> return (Nothing, pure ())
-                    Just (TestResult tr) -> liftTestM $ spectest $ unsafeCoerce tr) horizontalDepTests
+  extractedExamples <- mapM (\ex -> case ex of 
+                          Nothing -> return Nothing
+                          Just (TestResult tr) -> unsafeCoerce tr) exs
+
+  -- Run tests with vertical dependencies (they are not in the cache so far)
+  -- TODO: Maybe run 
+  tested <- dependencyTestingM [] extractedExamples depFunc spectest
+
+  let results = case conf of
+                  DefConf -> map (join . fmap (`lookup` tested)) extractedExamples
+                  PendingConf -> map (fmap (\val -> fromMaybe
+                    (Nothing, it "The dependencies were not fullfilled" $ do pending)
+                    (lookup val tested)))
+                                 extractedExamples
   -- extract results of test runs
-  let bs = map fst results
+  let bs = map (join . fmap fst) results
   -- extract and combine test display output
-  let specs = mapM_ snd results
+  let specs = mapM_ snd (catMaybes results)
   testId <- getTestId
   addTestResult (bs, describe descr specs)
   return testId
