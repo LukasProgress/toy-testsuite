@@ -153,20 +153,19 @@ runDependentTest descr exId (depFunc, depIds) spectest = do
   -- filter with dependencies
   horizontalDepTests <- extractDeps depIds exs
 
-  extractedExamples <- mapM (\ex -> case ex of 
-                          Nothing -> return Nothing
-                          Just (TestResult tr) -> unsafeCoerce tr) exs
 
   -- Run tests with vertical dependencies (they are not in the cache so far)
   -- TODO: Maybe run 
-  tested <- dependencyTestingM [] extractedExamples depFunc spectest
+  tested <- dependencyTestingTR [] horizontalDepTests depFunc spectest
 
   let results = case conf of
-                  DefConf -> map (join . fmap (`lookup` tested)) extractedExamples
-                  PendingConf -> map (fmap (\val -> fromMaybe
+                  DefConf -> map (\tr -> case tr of 
+                                    Nothing -> Nothing
+                                    Just (TestResult tr) -> (lookup (unsafeCoerce tr) tested)) exs
+                  PendingConf -> map (fmap (\(TestResult tr) -> fromMaybe
                     (Nothing, it "The dependencies were not fullfilled" $ do pending)
-                    (lookup val tested)))
-                                 extractedExamples
+                    (lookup (unsafeCoerce tr) tested)))
+                                 exs
   -- extract results of test runs
   let bs = map (join . fmap fst) results
   -- extract and combine test display output
@@ -207,6 +206,39 @@ dependencyTestingM resMap (Just x : as) depFunc spectest =
                                       testResult <- liftTestM $ spectest x
                                       dependencyTestingM ((x, testResult):resMap) as depFunc spectest
                                     else dependencyTestingM resMap' as depFunc spectest
+
+
+-- DependencyTestingTR is supposed to do the same thing as dependencyTestingM, 
+-- but utilizing TestResult
+dependencyTestingTR :: Eq a => Monad m =>
+                             [(a, (Maybe b, Spec))]  -- Collection of result list
+                             -> [Maybe TestResult]                          -- Values to be tested
+                             -> (a -> Maybe [a])                     -- DependencyFunction  
+                             -> (a -> m (Maybe b, Spec))           -- spectest
+                             -> TestM m [(a, (Maybe b, Spec))]
+dependencyTestingTR steps [] _ _ = return steps
+dependencyTestingTR steps (Nothing: as) depFunc spectest = dependencyTestingTR steps as depFunc spectest
+dependencyTestingTR resMap (Just (TestResult x) : as) depFunc spectest =
+  case lookup (unsafeCoerce x) resMap of
+    --either the test already ran, then we can add the result to the list of bs: 
+    Just _  -> dependencyTestingTR resMap as depFunc spectest
+    --or not, now we need to test all its dependencies before x:
+    Nothing ->
+      let dependencies = depFunc $ unsafeCoerce x
+      in case dependencies of
+        Nothing -> do                                  -- if no deps, simply test and add result to bs, add spec to specsequence and add the mapping x->b to the resultmap
+           specTestResult <- liftTestM $ spectest $ unsafeCoerce x
+           dependencyTestingTR ((unsafeCoerce x, specTestResult):resMap) as depFunc spectest
+        Just deps -> do
+          resMap' <- dependencyTestingTR resMap (map (Just . TestResult) deps) depFunc spectest
+          let dependenciesFullfilled = all (\dep -> case lookup dep resMap' of
+                                                     Just (Just _, _) -> True
+                                                     _                -> False)
+                                            deps
+          if dependenciesFullfilled then do
+                                      testResult <- liftTestM $ spectest $ unsafeCoerce x
+                                      dependencyTestingTR ((unsafeCoerce x, testResult):resMap) as depFunc spectest
+                                    else dependencyTestingTR resMap' as depFunc spectest
 
 
 -- An example for the usage of a TestM Monad:
