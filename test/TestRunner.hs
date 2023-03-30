@@ -149,10 +149,13 @@ runDependentTest :: (Eq a) => Monad m =>
 runDependentTest descr exId (depFunc, depIds) spectest = do
   -- get the testresults associated with the given index
   exs <- extractExamples exId
+  -- filter with dependencies
   horizontalDepTests <- extractDeps depIds exs
 
   -- run the tests (no vertical deps)
-  results <- mapM (liftTestM . spectest . unsafeCoerce) exs
+  results <- mapM (\ex -> case ex of 
+                    Nothing -> return (Nothing, pure ())
+                    Just (TestResult tr) -> liftTestM $ spectest $ unsafeCoerce tr) horizontalDepTests
   -- extract results of test runs
   let bs = map fst results
   -- extract and combine test display output
@@ -207,7 +210,8 @@ testM = do
   --- testing horizontal dependencies: 
   horiz1 <- runTest "`parsing` a file -> n < 3 is supposed to fail" examples (const Nothing, []) Spec.HorizontalDependency.parseTest
   vert1 <- runDependentTest "Testing out direct dependency, working with results" horiz1 (const Nothing, []) Spec.HorizontalDependency.typechecktest
-  
+  vert2 <- runDependentTest "running a test with many failures" vert1 (const Nothing, []) Spec.HorizontalDependency.someOthertest
+  testVert <- runDependentTest "Testing out horizontal deps" horiz1 (const Nothing, [vert1, vert2]) Spec.HorizontalDependency.typechecktest
   get
 
 ---------------------------------------------------------------------
