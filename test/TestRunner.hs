@@ -146,15 +146,15 @@ runTest descr exs (depFunc, depIds) spectest = do
 
 getExamplesById :: MonadState TestState m => [Int] -> m [[Maybe TestResult]]
 getExamplesById ids = do
-  t <- get tests
-  mapM (\id -> fromJust $ lookup id t) ids
+  t <- gets tests
+  return $ map (\id -> fromJust $ lookup id t) ids
 
 
 runDependentTest :: (Eq a) => Monad m =>
                     Description
                   -> [Int]                                  -- horizontal dependencies
                   -> (a -> Maybe [a])                       -- Function for vertical dependencies
-                  -> TestResult                             -- Dependency function, existentially hidden. To give a test with the correct number of arguments is responsibility of the user
+                  -> (a -> m (Maybe b, Spec))                             -- Dependency function, existentially hidden. To give a test with the correct number of arguments is responsibility of the user
                   -> TestM m Int                            -- returns just the id of the test
 runDependentTest descr exIds depIds spectest = do
   conf <- ask
@@ -162,8 +162,8 @@ runDependentTest descr exIds depIds spectest = do
   exs <- getExamplesById exIds
   -- fold them in a way that all rows where one argument was Nothing become Nothing
   testArgs <- getTestArgs exs
-  -- filter with dependencies
-  tested <- testHorizontally testArgs spectest
+  -- filter with dependencies (wrapping the spectest in existential hider)
+  tested <- testHorizontally testArgs (TestResult spectest)
 
 
   -- Run tests with vertical dependencies (they are not in the cache so far)
@@ -269,9 +269,9 @@ testM = do
   vertTest <- runTest "Testing Pendingconf (bigger than 5 should be pending)" examples (minusOneDepFunc, []) Spec.Tests.reachesZeroFail
   --- testing horizontal dependencies: 
   horiz1 <- runTest "`parsing` a file -> n < 3 is supposed to fail" examples (const Nothing, []) Spec.HorizontalDependency.parseTest
-  vert1 <- runDependentTest "Testing out direct dependency, working with results" [horiz1] (const Nothing) (TestResult Spec.HorizontalDependency.typechecktest)
-  vert2 <- runDependentTest "running a test with many failures" [vert1] (const Nothing) (TestResult Spec.HorizontalDependency.someOthertest)
-  testVert <- runDependentTest "Testing out horizontal deps" [horiz1, vert1, vert2] (const Nothing) (TestResult Spec.HorizontalDependency.typechecktest)
+  vert1 <- runDependentTest "Testing out direct dependency, working with results" [horiz1] (const Nothing) Spec.HorizontalDependency.typechecktest
+  vert2 <- runDependentTest "running a test with many failures" [vert1] (const Nothing) Spec.HorizontalDependency.someOthertest
+  testVert <- runDependentTest "Testing out horizontal deps" [horiz1, vert1, vert2] (const Nothing) Spec.HorizontalDependency.typechecktest
   get
 
 ---------------------------------------------------------------------
