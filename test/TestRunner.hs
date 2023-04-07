@@ -154,7 +154,7 @@ runDependentTest :: (Eq a) => Monad m =>
                     Description
                   -> [Int]                                  -- horizontal dependencies
                   -> (a -> Maybe [a])                       -- Function for vertical dependencies
-                  -> (a -> m (Maybe b, Spec))                             -- Dependency function, existentially hidden. To give a test with the correct number of arguments is responsibility of the user
+                  -> (a -> m (Maybe b, Spec))               -- Dependency function, existentially hidden. To give a test with the correct number of arguments is responsibility of the user
                   -> TestM m Int                            -- returns just the id of the test
 runDependentTest descr exIds depIds spectest = do
   conf <- ask
@@ -270,8 +270,6 @@ testM = do
   --- testing horizontal dependencies: 
   horiz1 <- runTest "`parsing` a file -> n < 3 is supposed to fail" examples (const Nothing, []) Spec.HorizontalDependency.parseTest
   vert1 <- runDependentTest "Testing out direct dependency, working with results" [horiz1] (const Nothing) Spec.HorizontalDependency.typechecktest
-  vert2 <- runDependentTest "running a test with many failures" [vert1] (const Nothing) Spec.HorizontalDependency.someOthertest
-  testVert <- runDependentTest "Testing out horizontal deps" [horiz1, vert1, vert2] (const Nothing) Spec.HorizontalDependency.typechecktest
   get
 
 ---------------------------------------------------------------------

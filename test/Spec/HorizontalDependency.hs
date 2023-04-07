@@ -37,12 +37,12 @@ someOthertest s = let boollist = map (\c -> fromEnum c < 79) (show s)
                                        else return (Nothing, spec)
 
 
-threefoldDependentTest :: Monad m => TestValue (ParseResult, TypecheckResult, BoolResult)
+threefoldDependentTest :: Monad m => ParseResult -> TypecheckResult -> BoolResult 
                                   -> m (Maybe Bool, Spec)
-threefoldDependentTest (TestValue (pr, tr, br)) = let res = or (runBR br) && 
+threefoldDependentTest pr tr br = let res = or (runBR br) && 
                                                           even (length (runTR tr)) && 
                                                           even (length (runPR pr))
-                                                      spec = it ("(" ++ runPR pr ++ "," ++ runTR tr ++ "," ++ show (runBR br) ++ ") passes test") $
-                                                              res `shouldBe` True
-                                                  in if res then return (Just res, spec)
-                                                            else return (Nothing, spec)
+                                      spec = it ("(" ++ runPR pr ++ "," ++ runTR tr ++ "," ++ show (runBR br) ++ ") passes test") $
+                                                res `shouldBe` True
+                                  in if res then return (Just res, spec)
+                                            else return (Nothing, spec)
