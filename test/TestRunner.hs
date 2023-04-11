@@ -33,7 +33,7 @@ type Description = String
 data Config = DefConf | PendingConf
 
 -- The test results are stored via type hiding, as not all testresults will have the same type
-data TestResult = forall b. TestResult b
+data TestResult = forall a. TestResult a
 -- All results will also be stored with an index, which can be used to define horizontal dependencies
 type TestResults = [(Int, [Maybe TestResult])]
 
@@ -57,6 +57,17 @@ liftTestM = MkTestM . lift . lift
 
 ------------------------------------------
 -- Helper functions for testing: 
+
+-- Apply existentially hidden function to a list of existentially hidden arguments
+applyFun :: TestResult -> [TestResult] -> TestResult
+applyFun x [] = x
+applyFun (TestResult f) (TestResult x:xs) = applyFun (TestResult ((unsafeCoerce f) (unsafeCoerce x))) xs
+
+
+-- getTestArgs takes the raw unwrapped TestResults and makes nice lists of arguments out of them
+getTestArgs :: Monad m => [[Maybe TestResult]] -> m [Maybe [TestResult]]
+getTestArgs exs = return $ map (\ex -> if all isJust ex then Just $ map fromJust ex else Nothing) $ transpose exs
+
 
 -- Add a testresult (tuple of results and spec) to the state
 addTestResult :: MonadState TestState m => ([Maybe b], Spec) -> m ()
@@ -134,24 +145,30 @@ runTest descr exs (depFunc, depIds) spectest = do
 ---------------------------------------------------------
 --------- Dependent tests (giving one id instead of a list of values for testing)------------
 
-getExamplesById :: MonadState TestState m => Int -> m [Maybe TestResult]
-getExamplesById id = do
+getExamplesById :: MonadState TestState m => [Int] -> m [[Maybe TestResult]]
+getExamplesById ids = do
   t <- gets tests
-  return $ fromJust $ lookup id t
+  return $ map (\id -> fromJust $ lookup id t) ids
 
 
 runDependentTest :: (Eq a) => Monad m =>
                     Description
-                  -> Int                                    -- Values to be tested
-                  -> (a -> Maybe [a], [Int])                -- Function for dependencies
+                  -> [Int]                                   -- Values to be tested
+                  -> (a -> Maybe [a])                        -- Function for dependencies
                   -> (a -> m (Maybe b, Spec))
                   -> TestM m Int                            -- returns just the id of the test
-runDependentTest descr exId (depFunc, depIds) spectest = do
+runDependentTest descr exIds depFunc spectest = do
   conf <- ask
   -- get the testresults associated with the given index
-  exs <- getExamplesById exId
-  -- filter with dependencies
-  horizontalDepTests <- extractDeps depIds exs
+    -- get the testresults associated with the given index
+  exs <- getExamplesById exIds
+  -- exHeads: Only the first element (helper for now)
+  let exHead = head exs
+  -- fold them in a way that all rows where one argument was Nothing become Nothing
+  testArgs <- getTestArgs exs
+
+  -- For now just get Deps for the heads as we figure out how to call functions with different arities
+  horizontalDepTests <- extractDeps exIds exHead
 
 
   -- Run tests with vertical dependencies (they are not in the cache so far)
@@ -161,11 +178,11 @@ runDependentTest descr exId (depFunc, depIds) spectest = do
   let results = case conf of
                   DefConf -> map (\tr -> case tr of 
                                     Nothing -> Nothing
-                                    Just (TestResult tr) -> (lookup (unsafeCoerce tr) tested)) exs
+                                    Just (TestResult tr) -> (lookup (unsafeCoerce tr) tested)) exHead
                   PendingConf -> map (fmap (\(TestResult tr) -> fromMaybe
                     (Nothing, it "The dependencies were not fullfilled" $ do pending)
                     (lookup (unsafeCoerce tr) tested)))
-                                 exs
+                                 exHead
   -- extract results of test runs
   let bs = map (join . fmap fst) results
   -- extract and combine test display output
@@ -252,9 +269,9 @@ testM = do
   vertTest <- runTest "Testing Pendingconf (bigger than 5 should be pending)" examples (minusOneDepFunc, []) Spec.Tests.reachesZeroFail
   --- testing horizontal dependencies: 
   horiz1 <- runTest "`parsing` a file -> n < 3 is supposed to fail" examples (const Nothing, []) Spec.HorizontalDependency.parseTest
-  vert1 <- runDependentTest "Testing out direct dependency, working with results" horiz1 (const Nothing, []) Spec.HorizontalDependency.typechecktest
-  vert2 <- runDependentTest "running a test with many failures" vert1 (const Nothing, []) Spec.HorizontalDependency.someOthertest
-  testVert <- runDependentTest "Testing out horizontal deps" horiz1 (const Nothing, [vert1, vert2]) Spec.HorizontalDependency.typechecktest
+  vert1 <- runDependentTest "Testing out direct dependency, working with results" [horiz1] (const Nothing) Spec.HorizontalDependency.typechecktest
+  vert2 <- runDependentTest "running a test with many failures" [vert1] (const Nothing) Spec.HorizontalDependency.someOthertest
+  testVert <- runDependentTest "Testing out horizontal deps" [horiz1, vert1, vert2] (const Nothing) Spec.HorizontalDependency.typechecktest
   get
 
 ---------------------------------------------------------------------
