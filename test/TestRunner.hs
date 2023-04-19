@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use =<<" #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Main where
 
@@ -33,7 +34,7 @@ type Description = String
 data Config = DefConf | PendingConf
 
 -- The test results are stored via type hiding, as not all testresults will have the same type
-data TestResult = forall b. TestResult b
+data TestResult = forall a. TestResult a
 -- All results will also be stored with an index, which can be used to define horizontal dependencies
 type TestResults = [(Int, [Maybe TestResult])]
 
@@ -90,6 +91,15 @@ extractDeps ids exs = do
   return result
 
 
+-- Apply existentially hidden function to a list of existentially hidden arguments
+applyFun :: TestResult -> [TestResult] -> TestResult
+applyFun x [] = x
+applyFun (TestResult f) (TestResult x:xs) = applyFun (TestResult ((unsafeCoerce f) (unsafeCoerce x))) xs
+
+
+-- getTestArgs takes the raw unwrapped TestResults and makes nice lists of arguments out of them
+getTestArgs :: Monad m => [[Maybe TestResult]] -> m [Maybe [TestResult]]
+getTestArgs exs = return $ map (\ex -> if all isJust ex then Just $ map fromJust ex else Nothing) $ transpose exs
 ------------------------------------------
 -- The core of this library - runTest
 
@@ -134,45 +144,49 @@ runTest descr exs (depFunc, depIds) spectest = do
 ---------------------------------------------------------
 --------- Dependent tests (giving one id instead of a list of values for testing)------------
 
-getExamplesById :: MonadState TestState m => Int -> m [Maybe TestResult]
-getExamplesById id = do
+getExamplesById :: MonadState TestState m => [Int] -> m [[Maybe TestResult]]
+getExamplesById ids = do
   t <- gets tests
-  return $ fromJust $ lookup id t
+  return $ map (\id -> fromJust $ lookup id t) ids
 
 
 runDependentTest :: (Eq a) => Monad m =>
                     Description
-                  -> Int                                    -- Values to be tested
-                  -> (a -> Maybe [a], [Int])                -- Function for dependencies
-                  -> (a -> m (Maybe b, Spec))
+                  -> [Int]                                  -- horizontal dependencies
+                  -> (a -> Maybe [a])                       -- Function for vertical dependencies
+                  -> (a -> m (Maybe b, Spec))               -- Dependency function, existentially hidden. To give a test with the correct number of arguments is responsibility of the user
                   -> TestM m Int                            -- returns just the id of the test
-runDependentTest descr exId (depFunc, depIds) spectest = do
+runDependentTest descr exIds depIds spectest = do
   conf <- ask
   -- get the testresults associated with the given index
-  exs <- getExamplesById exId
-  -- filter with dependencies
-  horizontalDepTests <- extractDeps depIds exs
+  exs <- getExamplesById exIds
+  -- fold them in a way that all rows where one argument was Nothing become Nothing
+  testArgs <- getTestArgs exs
+  -- filter with dependencies (wrapping the spectest in existential hider)
+  tested <- testHorizontally testArgs (TestResult spectest)
 
 
   -- Run tests with vertical dependencies (they are not in the cache so far)
   -- TODO: Maybe run 
-  tested <- dependencyTestingTR [] horizontalDepTests depFunc spectest
+  --tested <- dependencyTestingTR [] horizontalDepTests depFunc spectest
 
-  let results = case conf of
-                  DefConf -> map (\tr -> case tr of 
-                                    Nothing -> Nothing
-                                    Just (TestResult tr) -> (lookup (unsafeCoerce tr) tested)) exs
-                  PendingConf -> map (fmap (\(TestResult tr) -> fromMaybe
-                    (Nothing, it "The dependencies were not fullfilled" $ do pending)
-                    (lookup (unsafeCoerce tr) tested)))
-                                 exs
+  
   -- extract results of test runs
-  let bs = map (join . fmap fst) results
+  let bs = map (fmap fst . (\case
+                                Nothing -> Nothing
+                                Just (TestResult tr) -> unsafeCoerce tr :: Maybe ([Maybe b], Spec))) tested
   -- extract and combine test display output
-  let specs = mapM_ snd (catMaybes results)
+  let specmaybes = map (fmap snd . (\case 
+                                  Nothing -> Nothing 
+                                  Just (TestResult tr) -> unsafeCoerce tr :: Maybe ([Maybe b], Spec))) tested
+  let specs = sequence_ (catMaybes specmaybes)
   testId <- getTestId
   addTestResult (bs, describe descr specs)
   return testId
+
+
+
+-- Testhorizontally tests with multiple horizontal deps at the same time 
 
 -- The algorithm for vertical dependencies. Vertical dependencies are recursively calculated
 -- TODO: MAYBE it is possible to remember dependencies across different tests? But I am not sure, 
@@ -240,6 +254,9 @@ dependencyTestingTR resMap (Just (TestResult x) : as) depFunc spectest =
                                       dependencyTestingTR ((unsafeCoerce x, testResult):resMap) as depFunc spectest
                                     else dependencyTestingTR resMap' as depFunc spectest
 
+-- testHorizontally makes horizontal tests
+testHorizontally :: Monad m => [Maybe [TestResult]] -> TestResult -> m [Maybe TestResult]
+testHorizontally args func = return $ fmap (applyFun func) <$> args
 
 -- An example for the usage of a TestM Monad:
 -----------------Put all tests to be run here: ---------------------
@@ -252,9 +269,7 @@ testM = do
   vertTest <- runTest "Testing Pendingconf (bigger than 5 should be pending)" examples (minusOneDepFunc, []) Spec.Tests.reachesZeroFail
   --- testing horizontal dependencies: 
   horiz1 <- runTest "`parsing` a file -> n < 3 is supposed to fail" examples (const Nothing, []) Spec.HorizontalDependency.parseTest
-  vert1 <- runDependentTest "Testing out direct dependency, working with results" horiz1 (const Nothing, []) Spec.HorizontalDependency.typechecktest
-  vert2 <- runDependentTest "running a test with many failures" vert1 (const Nothing, []) Spec.HorizontalDependency.someOthertest
-  testVert <- runDependentTest "Testing out horizontal deps" horiz1 (const Nothing, [vert1, vert2]) Spec.HorizontalDependency.typechecktest
+  vert1 <- runDependentTest "Testing out direct dependency, working with results" [horiz1] (const Nothing) Spec.HorizontalDependency.typechecktest
   get
 
 ---------------------------------------------------------------------
