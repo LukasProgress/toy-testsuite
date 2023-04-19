@@ -80,6 +80,7 @@ test-suite toy-testsuite-test
 
     other-modules:    Spec.Tests
                       , Spec.IOTest
+                      , Spec.HorizontalDependency
 
     -- Test dependencies.
     build-depends:    base >=4.15.1.0
