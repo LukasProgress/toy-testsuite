@@ -106,7 +106,7 @@ extractDeps ids exs = do
 runTest :: (Eq a) => Monad m =>
                     Description
                   -> [Maybe a]                     -- Values to be tested
-                  -> (a -> Maybe [a], [Int])                -- Function for dependencies
+                  -> (a -> Maybe [a], [Int])       -- Function for dependencies
                   -> (a -> m (Maybe b, Spec))
                   -> TestM m Int                   -- returns just the id of the test
 runTest descr exs (depFunc, depIds) spectest = do
@@ -178,9 +178,9 @@ runDependentTest descr exId (depFunc, depIds) spectest = do
 -- TODO: MAYBE it is possible to remember dependencies across different tests? But I am not sure, 
 -- As we cant reconstruct the types
 dependencyTestingM :: Eq a => Monad m =>
-                             [(a, (Maybe b, Spec))]  -- Collection of result list
+                             [(a, (Maybe b, Spec))]                -- Collection of result list
                              -> [Maybe a]                          -- Values to be tested
-                             -> (a -> Maybe [a])                     -- DependencyFunction  
+                             -> (a -> Maybe [a])                   -- DependencyFunction  
                              -> (a -> m (Maybe b, Spec))           -- spectest
                              -> TestM m [(a, (Maybe b, Spec))]
 dependencyTestingM steps [] _ _ = return steps
@@ -211,9 +211,9 @@ dependencyTestingM resMap (Just x : as) depFunc spectest =
 -- DependencyTestingTR is supposed to do the same thing as dependencyTestingM, 
 -- but utilizing TestResult
 dependencyTestingTR :: Eq a => Monad m =>
-                             [(a, (Maybe b, Spec))]  -- Collection of result list
-                             -> [Maybe TestResult]                          -- Values to be tested
-                             -> (a -> Maybe [a])                     -- DependencyFunction  
+                             [(a, (Maybe b, Spec))]                -- Collection of result list
+                             -> [Maybe TestResult]                 -- Values to be tested
+                             -> (a -> Maybe [a])                   -- DependencyFunction  
                              -> (a -> m (Maybe b, Spec))           -- spectest
                              -> TestM m [(a, (Maybe b, Spec))]
 dependencyTestingTR steps [] _ _ = return steps
